@@ -1,0 +1,356 @@
+name: CI (Uno)
+
+# CI and release pipeline for the Uno Platform port (src/Reactor.Uno + samples/Uno),
+# modeled on unoplatform/uno.monaco.editor and unoplatform/uno.resizetizer:
+#
+#   build + pack (nbgv version) -> sign (PackageSign environment)
+#     push to `uno`              -> Uno feed + nuget.org (dev packages, no approval)
+#     push to `release/stable/*` -> Uno feed (Production approval) -> nuget.org (second Production approval) -> tag
+#
+# The Uno jobs restore Uno.Sdk (from nuget.org, as pinned in global.json) and build Reactor.Uno.slnx
+# for desktop and WebAssembly, plus Android and iOS in a second job because they need extra workloads.
+# They skip while Reactor.Uno.slnx is not on the branch, so the "Uno CI result" required check still
+# reports on every PR. There is no path filter for the same reason: a required check must always run,
+# and the Uno build must also run when Microsoft's changes are pulled in from `main`.
+#
+# "Build Reactor (Windows)" builds Microsoft's Reactor.slnx the way their CI does, to catch changes to
+# the shared source (src/Reactor) that break the Windows side. It is not part of "Uno CI result".
+#
+# Microsoft's own workflows (ci.yml, release.yml, ...) stay in the tree for upstream syncs, but are
+# disabled on this fork.
+
+on:
+  push:
+    branches:
+      - uno
+      - release/stable/*
+  pull_request:
+    branches:
+      - uno
+      - main
+      - release/stable/*
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Never cancel a push build: it may be signing or publishing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: 1
+  NUGET_XMLDOC_MODE: skip
+
+# Required secrets (org secrets shared with this repository):
+# - SIGN_AZURE_CLIENT_ID, SIGN_AZURE_TENANT_ID, SIGN_AZURE_SUBSCRIPTION_ID: Azure login for code signing (OIDC)
+# - SIGN_KEY_VAULT_URL, SIGN_KEY_VAULT_CERTIFICATE_ID: Key Vault certificate for code signing
+# - UNO_NUGET_FEED_API_KEY: API key for the Uno NuGet feed
+# - NUGET_ORG_API_KEY: API key for nuget.org
+
+jobs:
+  detect:
+    name: Detect the Uno port
+    runs-on: ubuntu-latest
+    outputs:
+      port: ${{ steps.detect.outputs.port }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: Reactor.Uno.slnx
+          sparse-checkout-cone-mode: false
+
+      - name: Look for Reactor.Uno.slnx
+        id: detect
+        shell: bash
+        run: |
+          if [ -f Reactor.Uno.slnx ]; then
+            echo "port=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "port=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Reactor.Uno.slnx is not on this branch yet, so the Uno build, pack and publish jobs are skipped."
+          fi
+
+  build-uno:
+    name: Build Reactor.Uno (desktop + wasm)
+    needs: detect
+    if: needs.detect.outputs.port == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      # Required for the net10.0-browserwasm target.
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      # Per-TFM builds (not a bare slnx build) so the library's net10.0-android
+      # TFM is skipped — desktop and wasm are the sample-backed, validated targets.
+      - name: Build desktop
+        run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
+
+      - name: Build WebAssembly
+        run: dotnet build Reactor.Uno.slnx -f net10.0-browserwasm -c Debug -bl:artifacts-logs/build-wasm.binlog
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-desktop-wasm
+          path: artifacts-logs
+          if-no-files-found: ignore
+
+  build-mobile:
+    name: Build Reactor.Uno (android + ios)
+    needs: detect
+    if: needs.detect.outputs.port == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install mobile workloads
+        run: dotnet workload install android ios
+
+      # Produces a signed APK for both samples, so the Android head cannot rot.
+      - name: Build Android
+        run: dotnet build Reactor.Uno.slnx -f net10.0-android -c Debug -bl:artifacts-logs/build-android.binlog
+
+      # Managed compile only -- a device build/deploy needs a Mac, but this keeps
+      # the iOS head honest.
+      - name: Build iOS
+        run: dotnet build Reactor.Uno.slnx -f net10.0-ios -c Debug -bl:artifacts-logs/build-ios.binlog
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-android-ios
+          path: artifacts-logs
+          if-no-files-found: ignore
+
+  build-windows:
+    name: Build Reactor (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      # Same commands as the "Build solution" job of Microsoft's ci.yml.
+      - name: Restore
+        run: dotnet restore Reactor.slnx
+
+      - name: Build
+        run: dotnet build Reactor.slnx --no-restore --configuration Release -bl:artifacts-logs/build-windows.binlog
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-windows
+          path: artifacts-logs
+          if-no-files-found: ignore
+
+  pack:
+    name: Pack
+    needs: detect
+    if: needs.detect.outputs.port == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # nbgv computes the version height from the history.
+          fetch-depth: 0
+
+      - name: Determine version (NBGV)
+        id: nbgv
+        uses: dotnet/nbgv@f088059084cb5d872e9d1a994433ca6440c2bf72 # v0.4.2
+        with:
+          toolVersion: 3.8.118
+          setAllVars: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      # The library targets desktop, WebAssembly, Android and iOS, so packing builds all four.
+      - name: Install workloads
+        run: dotnet workload install wasm-tools android ios
+
+      - name: Pack
+        run: |
+          $packageVersion = "${{ steps.nbgv.outputs.SemVer2 }}".ToLower()
+          dotnet pack src/Reactor.Uno/Reactor.Uno.csproj -c Release -p:PackageVersion=$packageVersion -p:Version=${{ steps.nbgv.outputs.SimpleVersion }} -o artifacts -bl:artifacts-logs/pack.binlog
+
+      # The assembly is deliberately named "Reactor" like Microsoft's, so without an explicit
+      # <PackageId> it would pack as "Reactor": an ID someone else owns on nuget.org.
+      - name: Check the package ID
+        run: |
+          $packages = @(Get-ChildItem artifacts -Filter *.nupkg)
+          $wrong = @($packages | Where-Object { $_.Name -notlike 'Uno.Microsoft.UI.Reactor.*' })
+          if ($packages.Count -eq 0 -or $wrong.Count -gt 0) {
+            Write-Error "Expected only Uno.Microsoft.UI.Reactor packages, found: $($packages.Name -join ', ')"
+            exit 1
+          }
+
+      - name: Add NuGet summary
+        run: |
+          echo "### Package" >> $env:GITHUB_STEP_SUMMARY
+          echo "Version: ${{ steps.nbgv.outputs.SemVer2 }}" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuGet
+          path: artifacts
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-pack
+          path: artifacts-logs
+          if-no-files-found: ignore
+
+  # The single required check for the Uno port. Skipped jobs (no port on the branch yet) pass.
+  result:
+    name: Uno CI result
+    needs: [detect, build-uno, build-mobile, pack]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if a job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::A Uno CI job failed or was cancelled."
+          exit 1
+
+      - name: Passed
+        run: echo "Uno CI passed."
+
+  sign:
+    name: Sign
+    needs: [pack, result]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/uno' || startsWith(github.ref, 'refs/heads/release/stable/'))
+    runs-on: windows-latest
+    environment: PackageSign
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # Azure login through OIDC
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: NuGet
+          path: artifacts
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Sign CLI tool
+        run: dotnet tool install --tool-path . sign --version 0.9.1-beta.25278.1
+
+      - name: Az CLI login
+        uses: azure/login@v2
+        with:
+          allow-no-subscriptions: true
+          client-id: ${{ secrets.SIGN_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.SIGN_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.SIGN_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign packages
+        run: >-
+          ./sign code azure-key-vault "artifacts/**/*.nupkg"
+          --publisher-name "Uno.Microsoft.UI.Reactor"
+          --description "Microsoft UI Reactor port for Uno Platform"
+          --description-url "https://github.com/${{ github.repository }}"
+          --azure-key-vault-url "${{ secrets.SIGN_KEY_VAULT_URL }}"
+          --azure-key-vault-certificate "${{ secrets.SIGN_KEY_VAULT_CERTIFICATE_ID }}"
+          --verbosity information
+
+      - name: Upload signed packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuGet-Signed
+          path: artifacts
+
+  publish_dev:
+    name: Publish Dev
+    needs: sign
+    if: github.event_name == 'push' && github.ref == 'refs/heads/uno'
+    runs-on: ubuntu-latest
+    environment: Development
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Uno feed publish
+        uses: ./.github/actions/nuget-uno-publish
+        with:
+          token: ${{ secrets.UNO_NUGET_FEED_API_KEY }}
+
+      - name: nuget.org publish
+        uses: ./.github/actions/nuget-org-publish
+        with:
+          token: ${{ secrets.NUGET_ORG_API_KEY }}
+
+  # First approval: the Uno feed.
+  publish_release_uno:
+    name: Publish Internal Feed
+    needs: sign
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/stable/')
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Uno feed publish
+        uses: ./.github/actions/nuget-uno-publish
+        with:
+          token: ${{ secrets.UNO_NUGET_FEED_API_KEY }}
+
+  # Second approval: nuget.org, then tag the release.
+  publish_release_nuget_org:
+    name: Publish Production
+    needs: publish_release_uno
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/stable/')
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the release tag
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: nuget.org publish
+        uses: ./.github/actions/nuget-org-publish
+        with:
+          token: ${{ secrets.NUGET_ORG_API_KEY }}
+
+      - name: Tag release
+        uses: ./.github/actions/tag-release

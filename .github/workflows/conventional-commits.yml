@@ -1,0 +1,35 @@
+name: Conventional Commits
+
+on:
+  pull_request:
+    branches:
+      - uno
+      - main
+      - release/stable/*
+  # Started by upstream-sync.yml on its branch: pushes made with the default token
+  # do not trigger pull_request workflows.
+  workflow_dispatch:
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # The upstream sync brings Microsoft's commits, whose messages are not conventional.
+  IS_UPSTREAM_SYNC: ${{ (github.head_ref || github.ref_name) == 'automation/upstream-sync' }}
+
+jobs:
+  commitsar:
+    name: Validate for conventional commits
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Upstream sync, not checked
+        if: env.IS_UPSTREAM_SYNC == 'true'
+        run: echo "Upstream sync PR from microsoft/microsoft-ui-reactor; commit messages are Microsoft's, not checked."
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: env.IS_UPSTREAM_SYNC != 'true'
+        with:
+          # commitsar walks the branch history; checkout v2+ defaults to a shallow clone.
+          fetch-depth: 0
+      - name: Run commitsar
+        if: env.IS_UPSTREAM_SYNC != 'true'
+        uses: docker://outillage/commitsar:0.11.2

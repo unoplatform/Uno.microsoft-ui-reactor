@@ -1,0 +1,346 @@
+name: Sync upstream into uno
+
+# Keeps `uno` current with Microsoft's `main` (microsoft/microsoft-ui-reactor).
+# Adapted from unoplatform/uno's master-sync.yml (master -> feature/* branches).
+#
+# It maintains ONE pull request whose merge brings the latest upstream `main` in:
+#   - Builds a disposable `automation/upstream-sync` branch by *raw git merge* of
+#     upstream `main` into `uno` (keeps upstream in the merge ancestry, so each
+#     sync only brings what is new).
+#   - Clean merge  -> ready PR + auto-merge (merge-commit method).
+#   - Conflicts    -> commits the conflict markers, opens the PR as a DRAFT so a
+#     half-merge can never auto-land, labels it and pings once.
+#   - Already current / nothing new -> closes the PR and deletes the branch.
+#   - A human's pushed resolution on the sync branch is never clobbered: when the
+#     sync branch carries non-bot commits, the next run re-merges upstream *on top*
+#     of their work instead of resetting to `uno`.
+#
+# Upstream is fetched straight from Microsoft's repository; this fork's `main`
+# is not used and is not updated.
+#
+# Token: the default GITHUB_TOKEN. Pushes and PRs made with it do not trigger
+# GitHub Actions, and the required checks here ARE GitHub Actions, so after
+# pushing, this workflow starts them itself through workflow_dispatch (the one
+# event the default token may trigger); their check runs land on the PR's head
+# commit. Swap-seam: a `SYNC_BOT_TOKEN` secret (PAT or App token) takes over with
+# zero edits; its pushes trigger the checks normally, so the dispatch is skipped.
+#
+# Repo prerequisite: Settings -> General -> "Allow auto-merge" must be ON.
+
+on:
+  schedule:
+    - cron: '0 4 * * *' # nightly 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Compute and log what would happen but make no changes'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  # Microsoft's workflows stay in the tree for clean syncs, but must not run here.
+  # GitHub registers a workflow only the first time its trigger fires, so they
+  # cannot all be switched off up front; this job switches off any that appeared
+  # since the last run (including ones Microsoft adds later).
+  keep-only-our-workflows:
+    name: Keep Microsoft's workflows off
+    if: github.repository == 'unoplatform/Uno.microsoft-ui-reactor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Switch off workflows that are not ours
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          # The workflows this fork runs; every other one comes from microsoft/microsoft-ui-reactor.
+          KEEP: ci-uno.yml conventional-commits.yml upstream-sync.yml
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS=$'\t' read -r id path; do
+            [ -z "${id:-}" ] && continue
+            # GitHub's built-in workflows (Code Quality, ...) are not files in the repo.
+            case "$path" in dynamic/*) continue ;; esac
+            name="${path##*/}"
+            case " $KEEP " in *" $name "*) continue ;; esac
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "would switch off $path"
+            else
+              gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/disable"
+              echo "switched off $path"
+            fi
+            count=$((count + 1))
+          done < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows" \
+                     --jq '.workflows[] | select(.state == "active") | "\(.id)\t\(.path)"')
+          {
+            echo "### Microsoft's workflows"
+            echo "Switched off this run: ${count}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sync:
+    name: Sync upstream main into uno
+    if: github.repository == 'unoplatform/Uno.microsoft-ui-reactor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write # start the checks on the sync branch
+    env:
+      # Swap-seam: SYNC_BOT_TOKEN (PAT/App) wins if present, else the default token.
+      SYNC_TOKEN: ${{ secrets.SYNC_BOT_TOKEN || github.token }}
+      HAS_BOT_TOKEN: ${{ secrets.SYNC_BOT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: uno
+          fetch-depth: 0
+          token: ${{ env.SYNC_TOKEN }}
+
+      - name: Preflight — verify auto-merge is allowed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          allowed="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.allow_auto_merge' 2>/dev/null || echo unknown)"
+          if [ "$allowed" != "true" ]; then
+            echo "::warning::Repository 'Allow auto-merge' is '${allowed}'. Sync PRs will be created but cannot auto-merge until it is enabled (Settings → General → Allow auto-merge)."
+            echo "> ⚠️ **Allow auto-merge is not enabled** — sync PRs will need manual merge." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Sync upstream main into uno
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.SYNC_TOKEN }}
+          TARGET: uno
+          UPSTREAM_URL: https://github.com/microsoft/microsoft-ui-reactor.git
+          UPSTREAM_BRANCH: main
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          PING: '@Xiaoy312'
+          REVIEWER: Xiaoy312
+          BOT_NAME: 'github-actions[bot]'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          SYNC_BRANCH="automation/upstream-sync"
+          SOURCE="upstream/${UPSTREAM_BRANCH}"
+          TITLE="chore(automation): Sync microsoft/microsoft-ui-reactor ${UPSTREAM_BRANCH} → ${TARGET}"
+          CMARKER="<!-- upstream-sync-bot:conflict -->"
+
+          # Guarantee exactly ONE summary row, however we exit.
+          STATUS=""
+          note() { STATUS="$1"; }
+          trap '{ echo "### \`${TARGET}\`"; echo "${STATUS:-❌ errored — see logs}"; } >> "$GITHUB_STEP_SUMMARY"' EXIT
+
+          git config user.name "$BOT_NAME"
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+          git fetch origin "${TARGET}" --prune
+          git fetch origin "${SYNC_BRANCH}" >/dev/null 2>&1 || true
+
+          # gh pr lookup that never aborts the step (set -e safe).
+          open_pr() { gh pr list --head "$SYNC_BRANCH" --base "$TARGET" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true; }
+
+          # Start the required checks on the sync branch. Only needed with the default
+          # token: its pushes and PRs do not trigger GitHub Actions.
+          start_checks() {
+            if [ "$HAS_BOT_TOKEN" = "true" ]; then return 0; fi
+            gh workflow run ci-uno.yml --ref "$SYNC_BRANCH" \
+              || echo "::warning::Could not start ci-uno.yml on ${SYNC_BRANCH}."
+            gh workflow run conventional-commits.yml --ref "$SYNC_BRANCH" \
+              || echo "::warning::Could not start conventional-commits.yml on ${SYNC_BRANCH}."
+          }
+
+          # --- 1. Already current: target already contains upstream -> nothing to do. ---
+          if git merge-base --is-ancestor "$SOURCE" "origin/${TARGET}"; then
+            pr="$(open_pr)"
+            if [ -n "$pr" ]; then
+              if [ "$DRY_RUN" = "true" ]; then
+                note "already current — would close stale PR #$pr (dry-run)"
+              else
+                gh pr close "$pr" --comment "\`${TARGET}\` is already up to date with upstream \`${UPSTREAM_BRANCH}\`; closing this sync PR." --delete-branch || true
+                note "already current — closed stale PR #$pr"
+              fi
+            else
+              note "already current — nothing to do"
+            fi
+            exit 0
+          fi
+
+          incoming="$(git rev-list --count "origin/${TARGET}..${SOURCE}")" || { note "❌ rev-list failed"; exit 1; }
+          range="$(git rev-parse --short "origin/${TARGET}")..$(git rev-parse --short "$SOURCE")" || { note "❌ rev-parse failed"; exit 1; }
+
+          # Does the existing sync branch carry non-bot (human resolution) commits?
+          HAS_HUMAN_WORK=0
+          SYNC_EXISTS=0
+          if git rev-parse --verify --quiet "origin/${SYNC_BRANCH}" >/dev/null; then
+            SYNC_EXISTS=1
+            # Commits unique to the sync branch are the bot's merge commit(s) plus any
+            # human resolution. List their committer names and drop the bot's; whatever
+            # remains is human work. (--invert-grep only inverts --grep, NOT
+            # --committer, so a committer filter cannot be used here.)
+            if [ -n "$(git log --format='%cn' \
+                        "origin/${SYNC_BRANCH}" --not "origin/${TARGET}" "$SOURCE" 2>/dev/null \
+                        | grep -vxF "$BOT_NAME" || true)" ]; then
+              HAS_HUMAN_WORK=1
+            fi
+          fi
+
+          # --- 2. No-op guard: sync branch already contains BOTH current upstream and
+          #        current target tip -> don't rebuild/force-push (avoids restarting CI
+          #        or dismissing a pending approval). Just ensure PR + auto-merge state. ---
+          if [ "$SYNC_EXISTS" = "1" ] \
+             && git merge-base --is-ancestor "$SOURCE" "origin/${SYNC_BRANCH}" \
+             && git merge-base --is-ancestor "origin/${TARGET}" "origin/${SYNC_BRANCH}"; then
+            pr="$(open_pr)"
+            if [ -n "$pr" ]; then
+              is_draft="$(gh pr view "$pr" --json isDraft --jq '.isDraft' 2>/dev/null || echo '')"
+              if [ "$is_draft" != "true" ] && [ "$DRY_RUN" != "true" ]; then
+                gh pr merge "$pr" --auto --merge >/dev/null 2>&1 || true
+              fi
+              note "up to date — PR #$pr unchanged"
+            else
+              note "sync branch current but no open PR; rebuilds next run"
+            fi
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            note "would sync ${incoming} commit(s) [\`$range\`] (dry-run)"
+            exit 0
+          fi
+
+          # --- 3. Build the sync branch by RAW merge (ancestry-preserving). When a human
+          #        resolution exists, base on the sync branch so their work is preserved. ---
+          if [ "$HAS_HUMAN_WORK" = "1" ]; then
+            git checkout -B "$SYNC_BRANCH" "origin/${SYNC_BRANCH}"
+          else
+            git checkout -B "$SYNC_BRANCH" "origin/${TARGET}"
+          fi
+
+          CONFLICT=0
+          conflict_files=""
+          if git merge --no-ff --no-edit -m "Merge microsoft/microsoft-ui-reactor ${UPSTREAM_BRANCH} into ${TARGET}" "$SOURCE"; then
+            CONFLICT=0
+          elif git ls-files -u | grep -q .; then
+            CONFLICT=1
+            conflict_files="$(git diff --name-only --diff-filter=U || true)"
+            git add -A
+            git commit --no-edit || { git merge --abort 2>/dev/null || true; note "❌ conflict commit failed"; exit 1; }
+          else
+            git merge --abort 2>/dev/null || true
+            note "❌ merge failed (non-conflict) — see logs"
+            exit 1
+          fi
+
+          pr="$(open_pr)"
+
+          # Quarantine BEFORE publishing a conflicted tree: demote an existing ready PR to
+          # draft and disable any prior auto-merge, so a half-merge can never auto-land.
+          if [ "$CONFLICT" = "1" ] && [ -n "$pr" ]; then
+            gh pr ready "$pr" --undo >/dev/null 2>&1 || true
+            gh pr merge "$pr" --disable-auto >/dev/null 2>&1 || true
+          fi
+
+          git push --force-with-lease origin "HEAD:refs/heads/${SYNC_BRANCH}"
+
+          # Ensure our labels exist (idempotent).
+          gh label create 'upstream-sync' --color '1d76db' --description 'Automated upstream main→uno sync PR' --force >/dev/null 2>&1 || true
+          gh label create 'conflicts'     --color 'b60205' --description 'Automated merge hit conflicts'        --force >/dev/null 2>&1 || true
+
+          # --- 4. Body (printf-built; indented to stay inside the YAML block scalar). ---
+          if [ "$CONFLICT" = "1" ]; then
+            detail="$(printf '%s\n' \
+              "> [!WARNING]" \
+              "> **Merge conflicts** — opened as a **draft** so it cannot auto-merge. Resolve, then mark *Ready for review*." \
+              "" \
+              "Conflicted files:" \
+              '```' \
+              "$conflict_files" \
+              '```' \
+              "" \
+              "Resolve locally (the merge is already committed *with* the conflict markers):" \
+              '```bash' \
+              "git fetch origin" \
+              "git checkout ${SYNC_BRANCH}" \
+              "# Open the conflicted files, resolve all <<<<<<< / ======= / >>>>>>> markers, then:" \
+              "git add -u" \
+              "git commit -m 'fix: resolve merge conflicts with upstream'" \
+              "git push" \
+              '```')"
+          else
+            detail="- Auto-merge: **enabled** — lands once required CI is green and a reviewer approves."
+          fi
+
+          body="$(printf '%s\n' \
+            "Automated sync — merges the latest \`${UPSTREAM_BRANCH}\` of [microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor) into \`${TARGET}\`." \
+            "" \
+            "- Incoming commits from upstream: **${incoming}**" \
+            "- Range: \`${range}\`" \
+            "- Merge method: **merge commit** (preserves ancestry so future syncs stay minimal)" \
+            "- Checks: started by the sync workflow (the default token's pushes do not trigger them)" \
+            "" \
+            "${detail}" \
+            "" \
+            "_Maintained automatically; updates in place. Generated by [this run](${RUN_URL})._")"
+
+          # --- 5. Create or update the PR. Create with the minimum so a label/reviewer
+          #        issue can never sink creation; add labels + reviewer best-effort after. ---
+          if [ -z "$pr" ]; then
+            if [ "$CONFLICT" = "1" ]; then
+              gh pr create --base "$TARGET" --head "$SYNC_BRANCH" --draft --title "$TITLE" --body "$body" \
+                || { note "❌ PR create failed"; exit 1; }
+            else
+              gh pr create --base "$TARGET" --head "$SYNC_BRANCH" --title "$TITLE" --body "$body" \
+                || { note "❌ PR create failed"; exit 1; }
+            fi
+            pr="$(open_pr)"
+          else
+            gh pr edit "$pr" --title "$TITLE" --body "$body" >/dev/null 2>&1 || true
+            if [ "$CONFLICT" != "1" ]; then
+              gh pr ready "$pr" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          # Labels (best-effort, idempotent).
+          gh pr edit "$pr" --add-label 'upstream-sync' >/dev/null 2>&1 || true
+          if [ "$CONFLICT" = "1" ]; then
+            gh pr edit "$pr" --add-label 'conflicts' >/dev/null 2>&1 || true
+          else
+            gh pr edit "$pr" --remove-label 'conflicts' >/dev/null 2>&1 || true
+          fi
+
+          # Reviewer request (best-effort).
+          gh pr edit "$pr" --add-reviewer "$REVIEWER" >/dev/null 2>&1 || true
+
+          # The pushed head has no checks yet: start them.
+          start_checks
+
+          if [ "$CONFLICT" = "1" ]; then
+            # One-time sticky comment so a human is pinged exactly once.
+            existing="$(gh pr view "$pr" --json comments --jq "[.comments[] | select(.body | contains(\"$CMARKER\"))] | length" 2>/dev/null || echo 0)"
+            if [ "${existing:-0}" = "0" ]; then
+              gh pr comment "$pr" --body "$(printf '%s\n' "$CMARKER" \
+                "${PING} — upstream \`${UPSTREAM_BRANCH}\` has merge conflicts into \`${TARGET}\`. This sync PR is a draft; see its description for the resolution steps.")" \
+                >/dev/null 2>&1 || true
+            fi
+            note "⚠️ conflicts (${incoming} commits) — draft PR #${pr:-?}"
+          else
+            if [ -n "$pr" ]; then
+              gh pr merge "$pr" --auto --merge >/dev/null 2>&1 \
+                || echo "::warning::Could not enable auto-merge on PR #$pr (check 'Allow auto-merge' / rulesets / token)."
+            fi
+            note "✅ synced ${incoming} commits [\`$range\`] — PR #${pr:-?}"
+          fi
