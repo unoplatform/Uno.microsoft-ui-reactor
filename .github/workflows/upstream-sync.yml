@@ -43,6 +43,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Microsoft's workflows stay in the tree for clean syncs, but must not run here.
+  # GitHub registers a workflow only the first time its trigger fires, so they
+  # cannot all be switched off up front; this job switches off any that appeared
+  # since the last run (including ones Microsoft adds later).
+  keep-only-our-workflows:
+    name: Keep Microsoft's workflows off
+    if: github.repository == 'unoplatform/Uno.microsoft-ui-reactor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Switch off workflows that are not ours
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          # The workflows this fork runs; every other one comes from microsoft/microsoft-ui-reactor.
+          KEEP: ci-uno.yml conventional-commits.yml upstream-sync.yml
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS=$'\t' read -r id path; do
+            [ -z "${id:-}" ] && continue
+            # GitHub's built-in workflows (Code Quality, ...) are not files in the repo.
+            case "$path" in dynamic/*) continue ;; esac
+            name="${path##*/}"
+            case " $KEEP " in *" $name "*) continue ;; esac
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "would switch off $path"
+            else
+              gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/disable"
+              echo "switched off $path"
+            fi
+            count=$((count + 1))
+          done < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows" \
+                     --jq '.workflows[] | select(.state == "active") | "\(.id)\t\(.path)"')
+          {
+            echo "### Microsoft's workflows"
+            echo "Switched off this run: ${count}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   sync:
     name: Sync upstream main into uno
     if: github.repository == 'unoplatform/Uno.microsoft-ui-reactor'
