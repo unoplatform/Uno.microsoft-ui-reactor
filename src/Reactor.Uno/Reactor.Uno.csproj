@@ -11,6 +11,10 @@
          Microsoft.UI.Reactor;` and assembly name line up. -->
     <AssemblyName>Reactor</AssemblyName>
     <RootNamespace>Microsoft.UI.Reactor</RootNamespace>
+    <!-- "Uno." + Microsoft's package ID, like the other Uno forks. Without it the
+         package would take the assembly name "Reactor", an ID someone else owns
+         on nuget.org; CI fails the pack on any other ID. -->
+    <PackageId>Uno.Microsoft.UI.Reactor</PackageId>
 
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
