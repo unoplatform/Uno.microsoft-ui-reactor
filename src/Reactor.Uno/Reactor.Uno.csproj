@@ -61,6 +61,8 @@
     <SharedHostingFile Include="..\Reactor\Hosting\HotReloadService.cs" />
     <SharedHostingFile Include="..\Reactor\Hosting\ReactorHotReloadCopier.cs" />
     <SharedHostingFile Include="..\Reactor\Hosting\FrameNavigation.cs" />
+    <!-- Used by Core/V1Protocol/TitleBarIconDefault.cs; only probes Assets\AppIcon.ico. -->
+    <SharedHostingFile Include="..\Reactor\Hosting\AppIconConvention.cs" />
 
     <!-- Windows-only or replaced by this project's Uno hosting layer. Listed so
          the triage check can tell "deliberately excluded" from "not yet seen". -->
@@ -86,6 +88,8 @@
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowEnums.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowEvents.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowIcon.cs" />
+    <!-- Only used by the excluded WindowIcon.cs. -->
+    <ExcludedHostingFile Include="..\Reactor\Hosting\WindowIconKind.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowKey.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowSpec.cs" />
   </ItemGroup>
