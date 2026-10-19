@@ -53,6 +53,29 @@ public enum WindowTitleBarHeight
 }
 
 /// <summary>
+/// Theme of the window's system caption (the minimize / maximize / close buttons).
+/// Mirrors the Windows framework's enum (and <c>Microsoft.UI.Windowing.TitleBarTheme</c>).
+/// </summary>
+/// <remarks>
+/// Declared here for the same reason as <see cref="WindowTitleBarHeight"/>: the
+/// shared <c>TitleBarElement.PreferredTheme</c> references it (issue #1297).
+/// Unlike the height, it is <b>not</b> honoured: Uno has no
+/// <c>AppWindowTitleBar.PreferredTheme</c>, so the declaration is accepted and
+/// ignored (see <see cref="ReactorWindow.SetElementTitleBarTheme"/>).
+/// </remarks>
+public enum WindowTitleBarTheme
+{
+    /// <summary>Legacy caption theming.</summary>
+    Legacy,
+    /// <summary>Follows the app's default mode (the system light / dark setting).</summary>
+    UseDefaultAppMode,
+    /// <summary>Light caption buttons.</summary>
+    Light,
+    /// <summary>Dark caption buttons.</summary>
+    Dark,
+}
+
+/// <summary>
 /// Declarative description of a window's chrome. Only the members the shared
 /// core reads are modelled; the rest of the Windows <c>WindowSpec</c> surface
 /// (backdrop, embed, persistence, splitters, …) is intentionally omitted.
@@ -569,6 +592,19 @@ public sealed class ReactorWindow
         catch { /* caption sizing unsupported on this head */ }
 
         SyncTitleBarControlHeight();
+    }
+
+    // ── Caption theme (issue #1297) ────────────────────────────────────────
+
+    /// <summary>
+    /// Records the caption theme declared by a mounted <c>TitleBar(...)</c>
+    /// element. A deliberate no-op on Uno: the Windows framework writes it to
+    /// <c>AppWindow.TitleBar.PreferredTheme</c>, which Uno does not implement.
+    /// </summary>
+    internal void SetElementTitleBarTheme(
+        WindowTitleBarTheme? theme,
+        Microsoft.UI.Xaml.FrameworkElement control)
+    {
     }
 
     /// <summary>Applies a changed spec to the live window (title only on Skia).</summary>
