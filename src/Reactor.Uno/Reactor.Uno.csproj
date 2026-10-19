@@ -161,29 +161,29 @@
        hardcode a version here (it would drift and trip NU1605). -->
   <!-- Desktop Skia host providers: UseX11/UseWin32/UseMacOS/UseLinuxFrameBuffer. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
-    <PackageReference Include="Uno.WinUI.Runtime.Skia" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.X11" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.Win32" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.MacOS" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.Linux.FrameBuffer" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.X11" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.Win32" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.MacOS" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.Linux.FrameBuffer" Version="$(UnoVersion)" />
   </ItemGroup>
 
   <!-- WebAssembly Skia host provider: UseWebAssembly. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-browserwasm'">
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.WebAssembly.Browser" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.WebAssembly.Browser" Version="$(UnoVersion)" />
   </ItemGroup>
 
-  <!-- Android Skia runtime. The head supplies the Activity entry point and
-       calls ReactorApp.CreateApplication<TRoot>(). -->
+  <!-- Android Skia runtime: UseAndroid. The head's NativeApplication.CreateHost
+       returns ReactorApp.CreateHost<TRoot>(). -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.Android" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.Android" Version="$(UnoVersion)" />
   </ItemGroup>
 
   <!-- Apple (UIKit) Skia runtime: UseAppleUIKit. Unlike Android, the Apple heads
        start from a real Main and take the same UnoPlatformHostBuilder shape as
        desktop, so ReactorApp.Run works there unchanged. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-ios'">
-    <PackageReference Include="Uno.WinUI.Runtime.Skia.AppleUIKit" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.AppleUIKit" Version="$(UnoVersion)" />
   </ItemGroup>
 
   <!-- Source-share drift guard.

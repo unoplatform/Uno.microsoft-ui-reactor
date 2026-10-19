@@ -7,6 +7,6 @@
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Uno.Sdk": "6.7.0-dev.117"
+    "Uno.Sdk": "7.0.0-dev.81"
   }
 }

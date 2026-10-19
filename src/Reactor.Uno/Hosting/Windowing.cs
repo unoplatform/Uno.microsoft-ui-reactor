@@ -195,7 +195,7 @@ public sealed class ReactorWindow
         nativeWindow.Activated += (_, args) =>
         {
             bool deactivated =
-                args.WindowActivationState == global::Windows.UI.Core.CoreWindowActivationState.Deactivated;
+                args.WindowActivationState == Microsoft.UI.Xaml.WindowActivationState.Deactivated;
             if (deactivated)
             {
                 IsActive = false;
