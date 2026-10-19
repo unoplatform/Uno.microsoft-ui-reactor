@@ -63,6 +63,8 @@
     <SharedHostingFile Include="..\Reactor\Hosting\FrameNavigation.cs" />
     <!-- Used by Core/V1Protocol/TitleBarIconDefault.cs; only probes Assets\AppIcon.ico. -->
     <SharedHostingFile Include="..\Reactor\Hosting\AppIconConvention.cs" />
+    <!-- Used by this project's Hosting/WindowIcon.cs, the Uno stand-in for WindowIcon.cs. -->
+    <SharedHostingFile Include="..\Reactor\Hosting\WindowIconKind.cs" />
 
     <!-- Windows-only or replaced by this project's Uno hosting layer. Listed so
          the triage check can tell "deliberately excluded" from "not yet seen". -->
@@ -87,9 +89,8 @@
     <!-- Declares WindowState, which this project's Hosting/Windowing.cs owns. -->
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowEnums.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowEvents.cs" />
+    <!-- Win32 HICON / AppWindow.SetIcon(IconId); replaced by Hosting/WindowIcon.cs. -->
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowIcon.cs" />
-    <!-- Only used by the excluded WindowIcon.cs. -->
-    <ExcludedHostingFile Include="..\Reactor\Hosting\WindowIconKind.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowKey.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowSpec.cs" />
   </ItemGroup>

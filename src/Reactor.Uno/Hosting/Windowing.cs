@@ -104,6 +104,21 @@ public sealed record WindowSpec
     /// on the Uno desktop heads via <c>AppWindow.TitleBar.PreferredHeightOption</c>.
     /// </summary>
     public WindowTitleBarHeight? TitleBarHeight { get; init; }
+
+    /// <summary>
+    /// The window's icon. On Uno it feeds only the <c>TitleBar(...)</c> icon default
+    /// (which otherwise falls back to the <c>Assets\AppIcon.ico</c> convention), and is
+    /// not applied to the window caption. Uno's <c>TitleBar</c> control is itself not
+    /// implemented yet, so today this has no visible effect.
+    /// </summary>
+    public WindowIcon? Icon { get; init; }
+
+    /// <summary>
+    /// Always <c>null</c>: the Uno port has no embedded windows. Declared because the
+    /// shared <c>TitleBarIconDefault</c> skips embedded windows, as the Windows
+    /// framework's <c>WindowSpec.Embed</c> does.
+    /// </summary>
+    internal object? Embed => null;
 }
 
 /// <summary>Tray-icon spec stub — tray icons are a Windows shell feature.</summary>
@@ -202,6 +217,13 @@ public sealed class ReactorWindow
 
     /// <summary>The Reactor host rendering into this window.</summary>
     public Microsoft.UI.Reactor.Hosting.ReactorHost? Host { get; internal set; }
+
+    // Read by the shared TitleBarIconDefault. On Windows they report whether the
+    // window's own icon load succeeded; the Uno window never applies an icon, so
+    // both stay null, which TitleBarIconDefault treats as "no decision yet" and
+    // trusts the declared icon / convention asset.
+    internal bool? DeclaredIconApplied => null;
+    internal string? UnloadableConventionIconPath => null;
 
     public bool IsActive { get; private set; } = true;
     public WindowState State { get; private set; } = WindowState.Normal;
