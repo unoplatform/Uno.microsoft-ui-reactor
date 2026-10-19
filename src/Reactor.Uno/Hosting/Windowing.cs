@@ -485,10 +485,17 @@ public sealed class ReactorWindow
     /// <summary>Starts a framework-managed window drag/move loop. No-op on Skia.</summary>
     public void BeginDragMove() { }
 
+    // Every TitleBar control currently mounted in this window, so unmounting one
+    // of several withdraws only its own contribution (see ClearTitleBarControl).
+    private readonly List<Microsoft.UI.Xaml.Controls.TitleBar> _mountedTitleBars = new();
+
     /// <summary>Records that a WinUI TitleBar control is mounted in this window.</summary>
-    public void MarkTitleBarControlPresent()
+    internal void MarkTitleBarControlPresent(Microsoft.UI.Xaml.Controls.TitleBar control)
     {
         lock (_titleBarLock) { _titleBarControlPresent = true; }
+
+        if (!_mountedTitleBars.Contains(control))
+            _mountedTitleBars.Add(control);
     }
 
     internal bool TitleBarControlPresent
@@ -521,8 +528,30 @@ public sealed class ReactorWindow
     /// clearing <see cref="TitleBarControlPresent"/> (that latch drives
     /// close-time teardown safety, where "was mounted at some point" is right).
     /// </summary>
-    internal void ClearTitleBarControl()
+    /// <param name="unmounting">
+    /// The control being unmounted, or <c>null</c> from a caller that does not know.
+    /// While another title bar stays mounted, only the departing one's height
+    /// contribution is withdrawn, and only if it was the one that wrote it.
+    /// </param>
+    internal void ClearTitleBarControl(Microsoft.UI.Xaml.Controls.TitleBar? unmounting = null)
     {
+        if (unmounting is null)
+        {
+            _mountedTitleBars.Clear();
+        }
+        else
+        {
+            _mountedTitleBars.Remove(unmounting);
+
+            if (_mountedTitleBars.Count > 0)
+            {
+                // A dead weak target counts as "the writer is gone" too.
+                if (_titleBarControl is null
+                    || (_titleBarControl.TryGetTarget(out var writer) && !ReferenceEquals(writer, unmounting)))
+                    return;
+            }
+        }
+
         _titleBarControl = null;
         _titleBarControlExplicitHeight = false;
         _titleBarControlHeightOwned = false;
