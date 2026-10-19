@@ -39,6 +39,9 @@ dotnet run -f net10.0-browserwasm
 
 Swap `ReactorUnoCounter` for `ReactorUnoShowcase` to run the control showcase.
 
+`dotnet run -f net10.0-desktop -- --smoke` runs the counter as CI's runtime check: it
+clicks "+" once, verifies the re-render, and exits 0 (pass) or 1 (fail, after 60s).
+
 ### Android / iOS
 
 The same projects, different heads. Only the entry point is platform-specific:

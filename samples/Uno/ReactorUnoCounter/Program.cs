@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using static Microsoft.UI.Reactor.Factories;
@@ -16,7 +17,9 @@ using static Microsoft.UI.Reactor.Factories;
 #elif __WASM__
 await ReactorApp.RunAsync<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360);
 #else
-ReactorApp.Run<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360);
+// `--smoke` is the CI runtime check: click "+" once, verify the re-render, exit.
+ReactorApp.Run<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360,
+    configure: args.Contains("--smoke") ? SmokeTest.Start : null);
 #endif
 
 class CounterApp : Component
