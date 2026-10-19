@@ -59,6 +59,20 @@ internal sealed class ReactorApplication : Application
 {
     private ReactorWindow? _primary;
 
+    /// <summary>
+    /// The shared unhandled-exception path: logs through <see cref="ReactorApp.AppLogger"/>
+    /// and asks <see cref="ReactorApp.OnUnhandledException"/>. Also used by the shared
+    /// <c>RenderErrorDispatch</c> for render errors routed here by
+    /// <c>RenderError.Propagate</c>. Mirrors the Windows framework.
+    /// </summary>
+    internal static bool ReportUnhandled(Exception ex) => ReportUnhandled(ex, ReactorApp.OnUnhandledException);
+
+    private static bool ReportUnhandled(Exception ex, Func<Exception, bool>? callback)
+    {
+        ReactorApp.AppLogger?.LogError(ex, "UnhandledException: {ExceptionType}: {ExceptionMessage}", ex.GetType().Name, ex.Message);
+        return callback is not null && callback(ex);
+    }
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         // Process-wide unhandled-exception routing. Mirrors the Windows host:
@@ -67,12 +81,16 @@ internal sealed class ReactorApplication : Application
         // rather than limping along corrupt.
         UnhandledException += (_, e) =>
         {
-            ReactorApp.AppLogger?.LogError(
-                e.Exception,
-                "UnhandledException: {ExceptionType}: {ExceptionMessage}",
-                e.Exception.GetType().Name, e.Exception.Message);
-            if (ReactorApp.OnUnhandledException is not null)
-                e.Handled = ReactorApp.OnUnhandledException(e.Exception);
+            // A render error the app asked to propagate (RenderError.Propagate) was already
+            // offered to OnUnhandledException, which declined it; don't ask twice.
+            if (Microsoft.UI.Reactor.Core.RenderErrorDispatch.TryConsumeDeclined(e.Exception))
+                return;
+            // Read the callback once: a one-shot callback that unregisters itself before
+            // returning true must still have its decision applied.
+            var callback = ReactorApp.OnUnhandledException;
+            bool handled = ReportUnhandled(e.Exception, callback);
+            if (callback is not null)
+                e.Handled = handled;
         };
 
         // Marshal cross-thread setState callbacks back onto the UI thread.

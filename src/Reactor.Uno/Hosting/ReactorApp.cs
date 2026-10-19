@@ -73,6 +73,20 @@ public static partial class ReactorApp
     /// </summary>
     public static Func<Exception, bool>? OnUnhandledException { get; set; }
 
+    private static RenderErrorHandler? _defaultRenderErrorHandler;
+
+    /// <summary>
+    /// App-wide replacement for the built-in render-error fallback, which shows the full
+    /// exception text (type, message, stack trace). <c>null</c> (the default) keeps the
+    /// built-in fallback. Read by the shared reconciler at error time; mirrors the
+    /// Windows framework's property. (issue #1291)
+    /// </summary>
+    public static RenderErrorHandler? DefaultRenderErrorHandler
+    {
+        get => Volatile.Read(ref _defaultRenderErrorHandler);
+        set => Volatile.Write(ref _defaultRenderErrorHandler, value);
+    }
+
     /// <summary>Devtools are not available in the Uno port.</summary>
     public static bool DevtoolsEnabled => false;
 
