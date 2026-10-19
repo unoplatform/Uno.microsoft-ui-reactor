@@ -15,6 +15,9 @@
          package would take the assembly name "Reactor", an ID someone else owns
          on nuget.org; CI fails the pack on any other ID. -->
     <PackageId>Uno.Microsoft.UI.Reactor</PackageId>
+    <!-- Uno.Sdk defaults IsPackable to false (unless GeneratePackageOnBuild), so
+         without this `dotnet pack` succeeds without writing a package. -->
+    <IsPackable>true</IsPackable>
 
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
