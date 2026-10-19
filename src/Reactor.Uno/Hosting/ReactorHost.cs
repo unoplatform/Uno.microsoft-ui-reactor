@@ -367,6 +367,11 @@ public sealed class ReactorHost : IDisposable
                 }
             }
 
+            // Every render, not just on a new root: an app's theme toggle changes
+            // RequestedTheme on the same root control.
+            if (ContentTarget is null)
+                SyncWindowRootTheme(newControl);
+
             _currentControl = newControl;
             _currentTree = newTree;
 
@@ -461,6 +466,27 @@ public sealed class ReactorHost : IDisposable
     // nothing to re-apply here; kept as a seam for heads where the markup path
     // fell back to a plain Border.
     private void ApplyWindowRootBackground() { }
+
+    /// <summary>
+    /// Gives the window root the theme the app's root control requests, so the
+    /// background it paints matches the app rather than the system.
+    /// </summary>
+    /// <remarks>
+    /// On Windows the app's root control IS <c>Window.Content</c>, so a root
+    /// <c>.RequestedTheme(Light)</c> themes the window, and the Mica backdrop under a
+    /// transparent root follows it. Here the root sits inside this Border, which would
+    /// otherwise keep the app-wide theme: a light-themed app on a dark system showed
+    /// its translucent light layers (NavigationView's content area is 50% white) over
+    /// the dark page background, which reads as a grey dismiss scrim. A root with no
+    /// requested theme maps back to <c>Default</c>, so the system theme still applies.
+    /// </remarks>
+    private void SyncWindowRootTheme(UIElement? content)
+    {
+        if (_windowRoot is null) return;
+        var requested = (content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Default;
+        if (_windowRoot.RequestedTheme != requested)
+            _windowRoot.RequestedTheme = requested;
+    }
 
     /// <summary>True when no render is pending, in-flight, or queued.</summary>
     public bool IsIdle =>
