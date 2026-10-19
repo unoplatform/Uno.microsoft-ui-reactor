@@ -33,3 +33,28 @@ internal sealed class WindowsRuntimeTypeAttribute : global::System.Attribute
 
     public string? SourceMetadata { get; }
 }
+
+/// <summary>
+/// Uno-side stand-in for CsWinRT's binding-metadata attribute, which the shared
+/// <c>TreeViewNodeData</c> carries so its <c>{Binding}</c> survives NativeAOT
+/// trimming on Windows. Inert here: Uno's binding engine resolves properties
+/// directly, with no CsWinRT <c>ICustomPropertyProvider</c> hop to generate.
+/// </summary>
+[global::System.AttributeUsage(
+    global::System.AttributeTargets.Class | global::System.AttributeTargets.Struct,
+    Inherited = false)]
+internal sealed class GeneratedBindableCustomPropertyAttribute : global::System.Attribute
+{
+    public GeneratedBindableCustomPropertyAttribute() { }
+
+    public GeneratedBindableCustomPropertyAttribute(
+        string[] propertyNames, global::System.Type[] indexerPropertyTypes)
+    {
+        PropertyNames = propertyNames;
+        IndexerPropertyTypes = indexerPropertyTypes;
+    }
+
+    public string[]? PropertyNames { get; }
+
+    public global::System.Type[]? IndexerPropertyTypes { get; }
+}
