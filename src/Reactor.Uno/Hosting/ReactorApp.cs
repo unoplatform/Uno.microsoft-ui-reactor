@@ -349,29 +349,31 @@ public static partial class ReactorApp
         return UnoBootstrap.RunAsync();
     }
 
-    // ── mobile / native-head entry point ──────────────────────────────────
+    // ── Android entry point ───────────────────────────────────────────────
 
     /// <summary>
-    /// Builds the Uno <see cref="Microsoft.UI.Xaml.Application"/> that hosts
-    /// <typeparamref name="TRoot"/>, without starting a host builder.
+    /// Builds the Uno host that runs <typeparamref name="TRoot"/>, without running it.
     /// </summary>
     /// <remarks>
-    /// <para>Android and iOS do not start from a console <c>Main</c> — the OS
-    /// owns the entry point (an <c>Activity</c> / <c>AppDelegate</c>) and the
-    /// native head hands Uno an application factory. <see cref="Run{TRoot}"/>
-    /// therefore cannot be used there; call this from the head instead:</para>
+    /// <para>Android does not start from a console <c>Main</c>: the OS instantiates the
+    /// head's <c>NativeApplication</c>, and Uno runs the host its <c>CreateHost</c>
+    /// override returns. <see cref="Run{TRoot}"/> therefore cannot be used there; call
+    /// this from the head instead:</para>
     /// <code>
-    /// public class Application : Microsoft.UI.Xaml.NativeApplication
+    /// public class Application : Uno.UI.Runtime.Android.NativeApplication
     /// {
     ///     public Application(IntPtr javaReference, JniHandleOwnership transfer)
-    ///         : base(() => ReactorApp.CreateApplication&lt;CounterApp&gt;("My App"),
-    ///                javaReference, transfer) { }
+    ///         : base(javaReference, transfer) { }
+    ///
+    ///     protected override UnoPlatformHost CreateHost() =&gt;
+    ///         ReactorApp.CreateHost&lt;CounterApp&gt;("My App");
     /// }
     /// </code>
     /// <para>Everything above the hosting layer — components, hooks, the
-    /// reconciler — is identical to desktop and WebAssembly.</para>
+    /// reconciler — is identical to desktop and WebAssembly. The Apple heads start
+    /// from a real <c>Main</c> and use <see cref="Run{TRoot}"/>.</para>
     /// </remarks>
-    public static Microsoft.UI.Xaml.Application CreateApplication<TRoot>(
+    public static Uno.UI.Hosting.UnoPlatformHost CreateHost<TRoot>(
         string title = "Reactor App",
         Action<ReactorHost>? configure = null)
         where TRoot : Component, new()
@@ -380,14 +382,13 @@ public static partial class ReactorApp
             RootFactory: static () => new TRoot(),
             Configure: configure,
             WindowTitle: title);
-        return new ReactorApplication();
+        return UnoBootstrap.BuildHost();
     }
 
     /// <summary>
-    /// Render-function overload of <see cref="CreateApplication{TRoot}"/> for
-    /// native heads.
+    /// Render-function overload of <see cref="CreateHost{TRoot}"/> for the Android head.
     /// </summary>
-    public static Microsoft.UI.Xaml.Application CreateApplication(
+    public static Uno.UI.Hosting.UnoPlatformHost CreateHost(
         string title,
         Func<RenderContext, Element> rootRender,
         Action<ReactorHost>? configure = null)
@@ -396,6 +397,6 @@ public static partial class ReactorApp
             RootRenderFunc: rootRender,
             Configure: configure,
             WindowTitle: title);
-        return new ReactorApplication();
+        return UnoBootstrap.BuildHost();
     }
 }

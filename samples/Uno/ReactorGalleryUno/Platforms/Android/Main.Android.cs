@@ -1,6 +1,7 @@
 using System;
 using Android.Runtime;
 using Microsoft.UI.Reactor;
+using Uno.UI.Hosting;
 using WinUIGalleryReactor;
 
 namespace ReactorGalleryUno.Droid;
@@ -11,13 +12,13 @@ namespace ReactorGalleryUno.Droid;
     HardwareAccelerated = true,
     Theme = "@style/AppTheme"
 )]
-public class Application : Microsoft.UI.Xaml.NativeApplication
+public class Application : Uno.UI.Runtime.Android.NativeApplication
 {
     public Application(IntPtr javaReference, JniHandleOwnership transfer)
-        : base(
-            () => ReactorApp.CreateApplication<GalleryShell>("Reactor Gallery (Uno)"),
-            javaReference,
-            transfer)
+        : base(javaReference, transfer)
     {
     }
+
+    protected override UnoPlatformHost CreateHost() =>
+        ReactorApp.CreateHost<GalleryShell>("Reactor Gallery (Uno)");
 }

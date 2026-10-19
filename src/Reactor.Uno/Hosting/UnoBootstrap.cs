@@ -23,7 +23,7 @@ internal static class UnoBootstrap
 
     public static Task RunAsync() => BuildHost().RunAsync();
 
-    private static UnoPlatformHost BuildHost()
+    internal static UnoPlatformHost BuildHost()
     {
         var builder = UnoPlatformHostBuilder.Create()
             .App(() => new ReactorApplication());
@@ -36,9 +36,10 @@ internal static class UnoBootstrap
         // unchanged, with UIKit as the platform provider.
         builder = builder.UseAppleUIKit();
 #elif __ANDROID__
-        // Android is the one target with no console entry point: the OS starts
-        // an Activity, so the head calls ReactorApp.CreateApplication<TRoot>()
-        // and this builder path is never reached.
+        // Android has no console entry point: the OS instantiates the head's
+        // NativeApplication, whose CreateHost override calls ReactorApp.CreateHost,
+        // and Uno runs the host it returns.
+        builder = builder.UseAndroid();
 #else
         builder = builder
             .UseX11()

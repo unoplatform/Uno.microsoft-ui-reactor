@@ -44,15 +44,17 @@ Swap `ReactorUnoCounter` for `ReactorUnoShowcase` to run the control showcase.
 The same projects, different heads. Only the entry point is platform-specific:
 desktop and **iOS** both use `ReactorApp.Run<T>()` (Uno gives the Apple heads the
 same host-builder shape as desktop); **Android** is the one target with no console
-entry point, so `Platforms/Android/Main.Android.cs` starts from an `Activity` and
-asks Reactor for the `Application`:
+entry point, so `Platforms/Android/Main.Android.cs` overrides Uno's `CreateHost`
+and asks Reactor for the host:
 
 ```csharp
-public class Application : Microsoft.UI.Xaml.NativeApplication
+public class Application : Uno.UI.Runtime.Android.NativeApplication
 {
     public Application(IntPtr javaReference, JniHandleOwnership transfer)
-        : base(() => ReactorApp.CreateApplication<CounterApp>("Reactor Counter (Uno)"),
-               javaReference, transfer) { }
+        : base(javaReference, transfer) { }
+
+    protected override UnoPlatformHost CreateHost() =>
+        ReactorApp.CreateHost<CounterApp>("Reactor Counter (Uno)");
 }
 ```
 

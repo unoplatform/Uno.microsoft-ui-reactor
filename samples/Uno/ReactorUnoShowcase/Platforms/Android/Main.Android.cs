@@ -1,6 +1,7 @@
 using System;
 using Android.Runtime;
 using Microsoft.UI.Reactor;
+using Uno.UI.Hosting;
 
 namespace ReactorUnoShowcase.Droid;
 
@@ -10,13 +11,13 @@ namespace ReactorUnoShowcase.Droid;
     HardwareAccelerated = true,
     Theme = "@style/AppTheme"
 )]
-public class Application : Microsoft.UI.Xaml.NativeApplication
+public class Application : Uno.UI.Runtime.Android.NativeApplication
 {
     public Application(IntPtr javaReference, JniHandleOwnership transfer)
-        : base(
-            () => ReactorApp.CreateApplication<Showcase>("Reactor Showcase (Uno)"),
-            javaReference,
-            transfer)
+        : base(javaReference, transfer)
     {
     }
+
+    protected override UnoPlatformHost CreateHost() =>
+        ReactorApp.CreateHost<Showcase>("Reactor Showcase (Uno)");
 }

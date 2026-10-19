@@ -25,8 +25,8 @@ Both samples are **single Uno projects targeting all four heads** — the compon
 source is identical everywhere. Only the entry point differs: desktop and iOS use
 `ReactorApp.Run<T>()` (Uno gives the Apple heads the same host-builder shape as
 desktop), wasm uses `RunAsync` (the browser thread can't block), and Android — the
-only target with no console entry point — starts from an `Activity` that calls the
-new `ReactorApp.CreateApplication<TRoot>()`.
+only target with no console entry point — overrides Uno's `NativeApplication.CreateHost`
+to return `ReactorApp.CreateHost<TRoot>()`.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to

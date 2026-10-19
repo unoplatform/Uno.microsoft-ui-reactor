@@ -9,8 +9,8 @@ using static Microsoft.UI.Reactor.Factories;
 //
 // Two targets differ:
 //  - WebAssembly can't block the browser thread, so it uses the async entry.
-//  - Android has no console entry point at all — the OS starts the Activity in
-//    Platforms/Android/, which calls ReactorApp.CreateApplication<CounterApp>().
+//  - Android has no console entry point at all — the OS starts the Application
+//    in Platforms/Android/, whose CreateHost calls ReactorApp.CreateHost<CounterApp>().
 #if __ANDROID__
 // intentionally empty — see Platforms/Android/
 #elif __WASM__
