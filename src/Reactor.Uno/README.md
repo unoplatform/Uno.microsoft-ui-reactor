@@ -2,8 +2,8 @@
 
 A port of [Microsoft.UI.Reactor](../../README.md) — the declarative, hooks-based,
 component MVU framework for WinUI 3 — to **Uno Platform Skia** targets, so the
-exact same Reactor C# can run on **desktop and WebAssembly** (and, theoretically,
-mobile) instead of only Windows / Windows App SDK.
+exact same Reactor C# can run on **desktop, WebAssembly, Android and iOS** instead
+of only Windows / Windows App SDK.
 
 Reactor renders *real `Microsoft.UI.Xaml` controls*. Uno Platform reimplements
 that same `Microsoft.UI.Xaml` API surface across Skia heads. So this port is
@@ -18,8 +18,8 @@ layer replacing the Windows-only windowing/shell stack.
 |---|---|---|
 | Desktop (Win32 / X11 / macOS / Framebuffer) | `net10.0-desktop` | ✅ Builds **and runs** — interactive |
 | WebAssembly | `net10.0-browserwasm` | ✅ Builds **and runs** in the browser |
-| Android | `net10.0-android` | ✅ Builds to a **signed APK**; on-device run not yet verified |
-| iOS | `net10.0-ios` | ✅ **Compiles** (on Windows); device deploy needs a Mac and is not yet verified |
+| Android | `net10.0-android` | ✅ Builds to a **signed APK** and **runs** on a physical device and the emulator |
+| iOS | `net10.0-ios` | ✅ **Runs** on the iOS Simulator; compiles on Windows, but deploying needs a Mac |
 
 Both samples are **single Uno projects targeting all four heads** — the component
 source is identical everywhere. Only the entry point differs: desktop and iOS use
@@ -30,7 +30,12 @@ to return `ReactorApp.CreateHost<TRoot>()`.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to
-clicks** in the browser via WASM.
+clicks** in the browser via WASM and on Android (API 36 emulator). On the iOS
+Simulator (iOS 26.3) the counter and gallery samples launch and render their
+first page; interaction there is not yet verified.
+
+Known mobile layout gaps: on Android the content draws under the status bar, and
+on iOS the window doesn't fill the screen (black bars above and below).
 
 ## Quick start — a file-based, single-file Reactor app
 
@@ -333,8 +338,8 @@ metadata reference` warning is benign — it is present in the working case too.
 
 ## Mobile
 
-`Reactor.Uno` already **compiles for `net10.0-android`**. To actually deploy to
-Android/iOS you'd add a thin mobile *head* project (Uno single-project EXE) that
-references `Reactor.Uno`, wires the native entry point (Activity / AppDelegate),
-and mounts a root `Component` via a `ReactorHost`. The framework code itself is
-platform-agnostic `Microsoft.UI.Xaml`, so no Reactor changes are expected.
+The samples are single Uno projects whose `net10.0-android` and `net10.0-ios`
+heads run as-is; no separate mobile head project is needed. Only the entry point
+is platform-specific (see [Status](#status)), and the framework code itself is
+platform-agnostic `Microsoft.UI.Xaml`. Deploy commands are in
+[samples/Uno](../../samples/Uno/README.md#android--ios).
