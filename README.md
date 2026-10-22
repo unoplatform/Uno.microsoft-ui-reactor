@@ -1,6 +1,6 @@
 # Uno Platform port of Microsoft UI Reactor
 
-This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft UI Reactor](https://github.com/microsoft/microsoft-ui-reactor) on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS, with the Skia renderer. It is experimental, like Reactor itself, and a work in progress.
+This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft UI Reactor](https://github.com/microsoft/microsoft-ui-reactor) with the Skia renderer. It runs on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS. It is experimental, like Reactor itself, and a work in progress.
 
 - **Package:** `Uno.Microsoft.UI.Reactor` on nuget.org. Dev versions (`0.1.0-dev.N`) are published from the `uno` branch.
 - **Windows App SDK targets** (`-windows`) use Microsoft's own [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) package; this port covers the Uno targets.
