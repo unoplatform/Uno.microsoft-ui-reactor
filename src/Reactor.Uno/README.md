@@ -116,7 +116,8 @@ root `Directory.Packages.props` turns Central Package Management on. MSBuild
 stops walking up at the nearest match, so these shadow files pin the `Uno.Sdk`
 and turn CPM off for the Uno projects only; the Windows framework build is
 untouched (and the Uno projects stay out of the main `Reactor.slnx`, so CI never
-restores them).
+restores them). Which files are ours and which are Microsoft's is listed in
+[What's ours, what's Microsoft's](#whats-ours-whats-microsofts).
 
 ```
 src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft.UI.Reactor)
@@ -186,27 +187,58 @@ is **not** shared; this project provides a slim Uno hosting layer instead:
   degrade gracefully.
 
 **Excluded subsystems:** `Docking/` (native tab tear-off / floating windows via
-Win32 — the dock event-fluent region in `ElementExtensions.Events.cs` is guarded
-with `#if !REACTOR_UNO`), the Windows shell integration (tray/jumplist/taskbar),
+Win32), the Windows shell integration (tray/jumplist/taskbar),
 window persistence, and the in-app devtools menu.
 
-### Surgical shared-source edits
+### What's ours, what's Microsoft's
 
-The port touches only **two** shared files, and just one of them carries a
-`REACTOR_UNO` conditional (the symbol is defined only by this project, so the
-Windows build is **unaffected** — verified green):
+This repository is a fork of
+[microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor).
+`upstream-sync.yml` merges Microsoft's `main` into `uno` every night, so every
+line of theirs we change has to be merged again, and can conflict, on every sync.
 
-- `Elements/ElementExtensions.Events.cs` — the Docking event fluents (`#if !REACTOR_UNO`),
-  since `Docking/` is excluded from the port.
-- `Core/Reconciler.Mount.cs` — `return null` → `return default` in a generic
-  helper. Not a conditional: semantically identical on both builds (`T` is
-  constrained to a reference type); it just satisfies Uno's nullable analysis.
+**Don't modify Microsoft's files.** The port's code, build settings and docs go
+in the paths below. When shared source doesn't compile on Uno, work around it
+from this project: a `<Compile Remove>` in `Reactor.Uno.csproj`, a shim under
+`src/Reactor.Uno/`, an alias in `GlobalUsings.cs`, or a build setting in
+`Directory.Build.props`. If the fix really belongs in Microsoft's code, send it to
+their repository and let the sync bring it in.
 
-> A second conditional used to guard `Hyperlink.UnderlineStyle` (Uno declared the
-> `UnderlineStyleProperty` DP identifier `internal`). That was fixed upstream in
-> [unoplatform/uno#23652](https://github.com/unoplatform/uno/issues/23652), so as of
-> `Uno.Sdk 6.7.0-dev.117` the guard is gone and the shared DP-based updater compiles
-> unchanged.
+Ours:
+
+```
+src/Reactor.Uno/                     # the port library
+samples/Uno/                         # the Uno samples
+Reactor.Uno.slnx                     # the port's solution
+version.json                         # Nerdbank.GitVersioning, for the Uno package
+.github/actions/nuget-org-publish/
+.github/actions/nuget-uno-publish/
+.github/actions/tag-release/
+.github/workflows/ci-uno.yml
+.github/workflows/conventional-commits.yml
+.github/workflows/upstream-sync.yml
+```
+
+Everything else is Microsoft's. That includes the shared source the port
+compiles (`src/Reactor/`, `src/Reactor.Advanced/`), the root build files
+(`Directory.Build.props`, `Directory.Packages.props`, `Reactor.slnx`,
+`global.json`), `AGENTS.md`, `docs/`, `tests/`, and their workflows in
+`.github/workflows/`. Those workflows stay in the tree so the sync merges cleanly,
+but they are switched off on this fork.
+
+These Microsoft files are modified today. Don't add to the list, and remove an
+entry when you find a way to do without it:
+
+| File | Change | Why it isn't in our paths |
+|---|---|---|
+| `README.md` | An Uno Platform section at the top | GitHub shows the root README on the fork's front page. |
+| `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | `Reactor.Uno.slnx` sits at the root, so building it resolves SDKs from the root `global.json`; the ones under `src/Reactor.Uno/` and `samples/Uno/` are read only by builds started in those folders. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
+| `src/Reactor/Core/Reconciler.Mount.cs` | `return null` → `return default` in a generic helper | Satisfies Uno's nullable analysis. Behaves the same on Windows, since `T` is constrained to a reference type. |
+
+The shared source has no `#if REACTOR_UNO` blocks. A guard around
+`Hyperlink.UnderlineStyle` was removed once Uno made `UnderlineStyleProperty` public
+([unoplatform/uno#23652](https://github.com/unoplatform/uno/issues/23652),
+`Uno.Sdk 6.7.0-dev.117`).
 
 ### Name disambiguation (`GlobalUsings.cs`)
 
