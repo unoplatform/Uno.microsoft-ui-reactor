@@ -21,7 +21,7 @@ layer replacing the Windows-only windowing/shell stack.
 | Android | `net10.0-android` | ✅ Builds to a **signed APK** and **runs** on a physical device and the emulator |
 | iOS | `net10.0-ios` | ✅ **Runs** on the iOS Simulator; compiles on Windows, but deploying needs a Mac |
 
-Both samples are **single Uno projects targeting all four heads** — the component
+The samples are **single Uno projects targeting all four heads** — the component
 source is identical everywhere. Only the entry point differs: desktop and iOS use
 `ReactorApp.Run<T>()` (Uno gives the Apple heads the same host-builder shape as
 desktop), wasm uses `RunAsync` (the browser thread can't block), and Android — the
