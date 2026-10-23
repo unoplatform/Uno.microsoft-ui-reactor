@@ -96,8 +96,29 @@ jobs:
       - name: Build desktop
         run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
 
+      # Runtime check on the build above (Win32 head): start the counter, click "+" through
+      # its automation peer, and verify the re-render. The app exits 1 after 60s on its own;
+      # the 2-minute wait only catches a hang before its timer starts.
+      - name: Smoke test desktop
+        run: |
+          $exe = "samples/Uno/ReactorUnoCounter/bin/Debug/net10.0-desktop/ReactorUnoCounter.exe"
+          $p = Start-Process $exe -ArgumentList "--smoke" -PassThru -NoNewWindow `
+            -RedirectStandardOutput smoke.out -RedirectStandardError smoke.err
+          $null = $p.Handle  # cache the handle, or ExitCode can read back as null
+          if (-not $p.WaitForExit(120000)) {
+            Stop-Process -Id $p.Id -Force
+            Write-Error "Smoke test hung: no result after 2 minutes"
+          }
+          Get-Content smoke.out, smoke.err
+          if ($p.ExitCode -ne 0) { Write-Error "Smoke test failed (exit $($p.ExitCode))" }
+
       - name: Build WebAssembly
         run: dotnet build Reactor.Uno.slnx -f net10.0-browserwasm -c Debug -bl:artifacts-logs/build-wasm.binlog
+
+      # Runtime check on the build above: serve the counter, open it with ?smoke in headless
+      # Chrome, and read the result the app logs to the browser console.
+      - name: Smoke test WebAssembly
+        run: ./samples/Uno/ReactorUnoCounter/smoke-wasm.ps1
 
       - name: Upload logs
         if: always()
