@@ -7,7 +7,7 @@ This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft UI Reac
 - **What works:** the [feature support table](src/Reactor.Uno/README.md#feature-support-on-uno-skia) for Uno Skia.
 - **Build and run:** `dotnet build Reactor.Uno.slnx -f net10.0-desktop` builds the port and its samples; `cd samples/Uno/ReactorUnoCounter && dotnet run -f net10.0-desktop` runs the counter sample. The other samples and targets are in [samples/Uno](samples/Uno/README.md).
 
-**Branches:** `uno` (the default) holds the port and takes the pull requests; this fork's `main` is unused. Microsoft's latest `main` is merged into it by a nightly sync PR (`.github/workflows/upstream-sync.yml`).
+**Branches:** `uno` (the default) holds the port and takes the pull requests; this fork's `main` is unused. Microsoft's latest `main` comes in through a nightly sync PR (`.github/workflows/upstream-sync.yml`), auto-merged when the merge is clean.
 
 **Issues:** bugs in the Uno port go here; bugs in Reactor itself go to [microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor/issues).
 
