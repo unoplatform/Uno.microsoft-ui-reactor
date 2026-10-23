@@ -12,10 +12,21 @@ using Microsoft.UI.Xaml.Media;
 /// runner), and checks the re-render shows the new count. That exercises startup,
 /// mount, a state update and the reconciler's patch on a live Uno window.
 /// Exits 0 on success and 1 on failure or timeout.
+/// On WebAssembly it is requested with <c>?smoke</c> in the page URL and does not exit:
+/// the "[smoke] PASS" / "[smoke] FAIL" line on the browser console is the result,
+/// which <c>smoke-wasm.ps1</c> reads from a headless browser.
 /// </summary>
 static class SmokeTest
 {
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
+
+#if __WASM__
+    // OperatingSystem.IsBrowser() is for CA1416, which doesn't count Uno's "BrowserWasm" as "browser".
+    public static bool RequestedByPageUrl() =>
+        OperatingSystem.IsBrowser()
+        && System.Runtime.InteropServices.JavaScript.JSHost.GlobalThis
+            .GetPropertyAsJSObject("location")?.GetPropertyAsString("search")?.Contains("smoke") == true;
+#endif
 
     public static void Start(ReactorHost host)
     {
@@ -58,7 +69,9 @@ static class SmokeTest
     {
         timer.Stop();
         Console.WriteLine($"[smoke] {message}");
+#if !__WASM__
         Environment.Exit(exitCode);
+#endif
     }
 
     static T? Find<T>(DependencyObject node, Func<T, bool> match) where T : DependencyObject

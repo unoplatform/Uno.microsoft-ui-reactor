@@ -15,7 +15,9 @@ using static Microsoft.UI.Reactor.Factories;
 #if __ANDROID__
 // intentionally empty — see Platforms/Android/
 #elif __WASM__
-await ReactorApp.RunAsync<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360);
+// `?smoke` in the page URL is the CI runtime check (the browser has no command line).
+await ReactorApp.RunAsync<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360,
+    configure: SmokeTest.RequestedByPageUrl() ? SmokeTest.Start : null);
 #else
 // `--smoke` is the CI runtime check: click "+" once, verify the re-render, exit.
 ReactorApp.Run<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360,
