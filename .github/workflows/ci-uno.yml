@@ -91,8 +91,8 @@ jobs:
       - name: Install wasm-tools workload
         run: dotnet workload install wasm-tools
 
-      # Per-TFM builds (not a bare slnx build) so the library's net10.0-android
-      # TFM is skipped — desktop and wasm are the sample-backed, validated targets.
+      # Per-TFM builds (not a bare slnx build), so this job only needs wasm-tools;
+      # the Android and iOS heads build in the build-mobile job.
       - name: Build desktop
         run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
 
@@ -145,7 +145,7 @@ jobs:
       - name: Install mobile workloads
         run: dotnet workload install android ios
 
-      # Produces a signed APK for both samples, so the Android head cannot rot.
+      # Produces a signed APK for each sample, so the Android head cannot rot.
       - name: Build Android
         run: dotnet build Reactor.Uno.slnx -f net10.0-android -c Debug -bl:artifacts-logs/build-android.binlog
 
