@@ -12,7 +12,7 @@ using WinUIGalleryReactor;
 // As on Windows, no explicit width/height: the gallery is content-heavy and
 // benefits from the OS-chosen default window size.
 #if __ANDROID__
-// intentionally empty — Android starts from the Activity in Platforms/Android/
+// intentionally empty — Android starts from the Application in Platforms/Android/
 #elif __WASM__
 await ReactorApp.RunAsync<GalleryShell>(
     "Reactor Gallery (Uno)",

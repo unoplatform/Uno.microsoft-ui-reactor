@@ -11,8 +11,8 @@ using Microsoft.UI.Reactor.Core;
 using static Microsoft.UI.Reactor.Factories;
 
 // Desktop and iOS share ReactorApp.Run; wasm needs the async entry (the browser
-// thread can't block); Android has no console entry point and starts from the
-// Activity in Platforms/Android/.
+// thread can't block); Android has no console entry point — the OS starts the
+// Application in Platforms/Android/, whose CreateHost calls ReactorApp.CreateHost<Showcase>().
 #if __ANDROID__
 // intentionally empty — see Platforms/Android/
 #elif __WASM__
