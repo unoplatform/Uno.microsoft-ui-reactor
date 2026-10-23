@@ -8,9 +8,10 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 | --- | --- | --- |
 | [`ReactorUnoCounter`](ReactorUnoCounter) | Minimal counter — the smallest Reactor-on-Uno app | desktop, wasm, android, ios |
 | [`ReactorUnoShowcase`](ReactorUnoShowcase) | ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, pickers, multi-window | desktop, wasm, android, ios |
+| [`ReactorGalleryUno`](ReactorGalleryUno) | The Reactor gallery, sharing [`samples/ReactorGallery`](../ReactorGallery)'s source; the docking and WebView2 pages are stand-ins | desktop, wasm, android, ios |
 | [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop |
 
-Both app samples are **single Uno projects targeting all four heads** — the
+All three app samples are **single Uno projects targeting all four heads** — the
 `Component` source is identical everywhere; only the entry point differs.
 
 ## Prerequisites
@@ -37,7 +38,8 @@ dotnet run -f net10.0-desktop
 dotnet run -f net10.0-browserwasm
 ```
 
-Swap `ReactorUnoCounter` for `ReactorUnoShowcase` to run the control showcase.
+Swap `ReactorUnoCounter` for `ReactorUnoShowcase` to run the control showcase, or
+for `ReactorGalleryUno` to run the gallery.
 
 `dotnet run -f net10.0-desktop -- --smoke` runs the counter as CI's runtime check: it
 clicks "+" once, verifies the re-render, and exits 0 (pass) or 1 (fail, after 60s).
