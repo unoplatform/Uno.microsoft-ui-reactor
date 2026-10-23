@@ -97,9 +97,11 @@ dotnet build -f net10.0-ios
 
 ### file-based/Counter.cs
 
-A single-file app — no project, no `.csproj`. Reactor owns the Uno `Application`,
-so the file's root component must **not** be named `App` (Uno.Sdk generates its own
-`App`).
+A single-file app — no project, no `.csproj`. Two things differ from the projects
+above: its root component must **not** be named `App`, and its `#:sdk` line pins
+the Uno.Sdk version itself instead of reading `global.json`. Both are explained in
+the port README's
+[Known limitations / notes](../../src/Reactor.Uno/README.md#known-limitations--notes).
 
 ```bash
 cd samples/Uno/file-based
