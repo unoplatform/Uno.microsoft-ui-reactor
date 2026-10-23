@@ -22,11 +22,16 @@ layer replacing the Windows-only windowing/shell stack.
 | iOS | `net10.0-ios` | ✅ **Runs** on the iOS Simulator; compiles on Windows, but deploying needs a Mac |
 
 The samples are **single Uno projects targeting all four heads** — the component
-source is identical everywhere. Only the entry point differs: desktop and iOS use
+source is identical everywhere. Desktop, wasm and iOS share one entry point,
 `ReactorApp.Run<T>()` (Uno gives the Apple heads the same host-builder shape as
-desktop), wasm uses `RunAsync` (the browser thread can't block), and Android — the
-only target with no console entry point — overrides Uno's `NativeApplication.CreateHost`
-to return `ReactorApp.CreateHost<TRoot>()`.
+desktop). Only Android differs: it is the only target with no console entry point,
+so it overrides Uno's `NativeApplication.CreateHost` to return
+`ReactorApp.CreateHost<TRoot>()`.
+
+On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
+block, so on wasm `Run` starts the app and returns, and any code after it runs
+right away. `RunAsync` is there for callers that want the host's `Task`; on wasm
+it never completes.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to
@@ -91,11 +96,12 @@ dotnet run Counter.cs
 
 ### Run on WebAssembly instead
 
-A single file-based app targets one TFM at a time. For WASM, set
-`#:property TargetFramework=net10.0-browserwasm` and use the async entry point
-(`await ReactorApp.RunAsync<CounterApp>(...)`) because the browser thread can't
-block. See [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) for a normal
-multi-targeted project that does both from one source via `#if __WASM__`:
+A file-based app doesn't run in the browser yet. With
+`#:property TargetFramework=net10.0-browserwasm`, the build produces no browser
+package (`wwwroot`), and `dotnet run` starts the app as a console process, which
+fails to load ICU. Use a project instead:
+[`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) runs on both
+from one source, with the same `ReactorApp.Run` call on each:
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
@@ -172,8 +178,9 @@ The assembly is named **`Reactor`** with root namespace
 The Windows `Hosting/` stack is Win32/DWM/AppWindow/shell P/Invoke-heavy, so it
 is **not** shared; this project provides a slim Uno hosting layer instead:
 
-- **`ReactorApp`** — `Run` (sync, desktop) / `RunAsync` (async, WASM) build an
-  `UnoPlatformHostBuilder` and a code-only `Application`. Platform providers are
+- **`ReactorApp`** — `Run` / `RunAsync` build an `UnoPlatformHostBuilder` and a
+  code-only `Application`. On WASM, where Uno's blocking `host.Run()` throws, `Run`
+  starts the host without waiting for it. Platform providers are
   selected per-TFM (`UseX11`/`UseWin32`/`UseMacOS`/`UseLinuxFrameBuffer` on
   desktop, `UseWebAssembly` on WASM).
 - **`ReactorHost`** — a trimmed render loop (keeps coalescing, reconcile, effects
