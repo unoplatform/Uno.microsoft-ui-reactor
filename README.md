@@ -3,7 +3,7 @@
 This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft UI Reactor](https://github.com/microsoft/microsoft-ui-reactor) with the Skia renderer. It runs on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS. It is experimental, like Reactor itself, and a work in progress.
 
 - **Package:** [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor) on nuget.org. Prerelease `-dev.N` builds are published from the `uno` branch, and stable releases from `release/stable/*` branches.
-- **Windows App SDK targets** (`-windows`) use Microsoft's own [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) package; this port covers the Uno targets.
+- **Windows App SDK:** this package doesn't target it; use Microsoft's [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) there.
 - **What works:** the [feature support table](src/Reactor.Uno/README.md#feature-support-on-uno-skia) for Uno Skia.
 - **Build and run:** `dotnet build Reactor.Uno.slnx -f net10.0-desktop` builds the port and its samples; `cd samples/Uno/ReactorUnoCounter && dotnet run -f net10.0-desktop` runs the counter sample. The other samples and targets are in [samples/Uno](samples/Uno/README.md).
 
