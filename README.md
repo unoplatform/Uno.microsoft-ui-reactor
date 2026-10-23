@@ -11,6 +11,8 @@ This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft UI Reac
 
 **Issues:** bugs in the Uno port go here; bugs in Reactor itself go to [microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor/issues).
 
+*Everything below is Microsoft's README, unchanged.*
+
 ---
 
 <a href="https://github.com/microsoft/microsoft-ui-xaml">
