@@ -265,8 +265,9 @@ public static partial class ReactorApp
 
     /// <summary>
     /// Launches a Reactor app whose root is a <see cref="Component"/> subclass.
-    /// Blocks until the window closes (desktop). For WebAssembly use
-    /// <see cref="RunAsync{TRoot}"/>.
+    /// Blocks until the window closes (desktop, iOS). On WebAssembly, where the
+    /// browser thread can't block, it starts the app and returns, so code after
+    /// the call runs right away there.
     /// </summary>
     public static void Run<TRoot>(
         string title = "Reactor App",
@@ -288,7 +289,8 @@ public static partial class ReactorApp
 
     /// <summary>
     /// Launches a Reactor app from a render function (no Component subclass).
-    /// Blocks until the window closes (desktop).
+    /// Blocks until the window closes (desktop, iOS); returns once the app has
+    /// started on WebAssembly. See <see cref="Run{TRoot}"/>.
     /// </summary>
     public static void Run(
         string title,
@@ -309,8 +311,10 @@ public static partial class ReactorApp
     }
 
     /// <summary>
-    /// Async launch for WebAssembly (the browser thread cannot block). Mirror of
-    /// <see cref="Run{TRoot}"/>; await it from a file-based app's top-level statements.
+    /// Async mirror of <see cref="Run{TRoot}"/>, for callers that want the host's
+    /// <see cref="Task"/>. <see cref="Run{TRoot}"/> already works on WebAssembly,
+    /// so this is not required there. On WebAssembly the task never completes,
+    /// since the browser app keeps running until the page is closed.
     /// </summary>
     public static Task RunAsync<TRoot>(
         string title = "Reactor App",
@@ -330,7 +334,7 @@ public static partial class ReactorApp
         return UnoBootstrap.RunAsync();
     }
 
-    /// <summary>Async launch (render function) for WebAssembly.</summary>
+    /// <summary>Async mirror of the render-function <see cref="Run(string, Func{RenderContext, Element}, double?, double?, bool, Action{ReactorHost}?)"/>.</summary>
     public static Task RunAsync(
         string title,
         Func<RenderContext, Element> rootRender,

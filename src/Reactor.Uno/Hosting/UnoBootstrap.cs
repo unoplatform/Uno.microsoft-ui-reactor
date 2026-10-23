@@ -21,9 +21,33 @@ namespace Microsoft.UI.Reactor;
 
 internal static class UnoBootstrap
 {
-    public static void Run() => BuildHost().Run();
+    public static void Run()
+    {
+#if __WASM__
+        // The browser thread can't block, so Uno's host.Run() throws on WebAssembly.
+        // Start the host and return instead: Uno.Wasm.Bootstrap calls Main through
+        // runMain, which keeps the runtime alive after Main returns, and the host's
+        // run loop never completes. Nobody awaits the task, so report its faults here
+        // or they are lost.
+        RunAsync().ContinueWith(
+            static t => ReportStartupFailure(t.Exception!.GetBaseException()),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+#else
+        BuildHost().Run();
+#endif
+    }
 
     public static Task RunAsync() => BuildHost().RunAsync();
+
+#if __WASM__
+    private static void ReportStartupFailure(Exception ex)
+    {
+        if (!ReactorApplication.ReportUnhandled(ex))
+            Console.Error.WriteLine($"Reactor app failed to start: {ex}");
+    }
+#endif
 
     internal static UnoPlatformHost BuildHost()
     {
