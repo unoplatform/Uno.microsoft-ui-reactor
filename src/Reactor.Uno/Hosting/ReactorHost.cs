@@ -224,9 +224,23 @@ public sealed class ReactorHost : IDisposable
         if (_disposed) return;
 
         _needsRerender = false;
-        Render();
-
-        Interlocked.Exchange(ref _renderPending, 0);
+        // Outermost frame for a propagated render error (issue #1291), as in the
+        // Windows host. Scoped, so a render started synchronously from inside
+        // another frame restores that frame's marker instead of clearing it.
+        using (RenderErrorDispatch.EnterPropagationScope())
+        {
+            try
+            {
+                Render();
+            }
+            finally
+            {
+                // Reset the gate so future setState calls can enqueue — also when a
+                // render error the app chose to propagate (RenderError.Propagate)
+                // escapes Render().
+                Interlocked.Exchange(ref _renderPending, 0);
+            }
+        }
 
         if (_needsRerender)
         {
@@ -318,7 +332,7 @@ public sealed class ReactorHost : IDisposable
                     RecoverFromHookOrder(ex, _rootComponent.Context, "component");
                     return;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!RenderErrorDispatch.IsPropagating(ex))
                 {
                     _logger?.LogError(ex, "Component Render() threw");
                     ShowErrorFallback(ex);
@@ -334,7 +348,7 @@ public sealed class ReactorHost : IDisposable
                     RecoverFromHookOrder(ex, _funcContext, "function-component");
                     return;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!RenderErrorDispatch.IsPropagating(ex))
                 {
                     _logger?.LogError(ex, "Function component threw");
                     ShowErrorFallback(ex);
@@ -418,7 +432,7 @@ public sealed class ReactorHost : IDisposable
             Interlocked.Exchange(ref _lastRenderMs, treeBuildMs + reconcileMs + effectsMs);
             OnRenderComplete?.Invoke(treeBuildMs, reconcileMs, effectsMs);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!RenderErrorDispatch.IsPropagating(ex))
         {
             _logger?.LogError(ex, "Render FAILED");
             ShowErrorFallback(ex);
