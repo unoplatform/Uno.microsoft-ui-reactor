@@ -34,25 +34,6 @@ clicks** in the browser via WASM and on Android (API 36 emulator). On the iOS
 Simulator (iOS 26.3) the counter and gallery samples launch and render their
 first page; interaction there is not yet verified.
 
-On Android and iOS the app is kept clear of the status bar, navigation bar,
-notch and display cutouts: Uno draws mobile apps edge-to-edge, so the host pads
-its window root to the window's visible bounds. Component code needs nothing for
-this. An app that draws under the bars itself picks the edges to keep padded when
-it creates the host, e.g. `SafeAreaEdges.None` for fully edge-to-edge, or
-`SafeAreaEdges.Bottom` to let a header run under the status bar:
-
-```csharp
-using Microsoft.UI.Reactor.Hosting;
-
-ReactorApp.CreateHost<CounterApp>("My App", configure: host => host.SafeAreaEdges = SafeAreaEdges.None);
-```
-
-On a padded edge, the bar shows the page background, not the app root's own
-background. It doesn't move content out from under the soft keyboard.
-
-Known mobile layout gap: on iOS the window doesn't fill the screen (black bars
-above and below), so the padding above hasn't been seen working there yet.
-
 ## Quick start — a file-based, single-file Reactor app
 
 This mirrors the [xaml.dev "file-based WinUI apps with Microsoft.UI.Reactor"](https://xaml.dev/post/file-based-winui-apps-with-microsoft-ui-reactor)
@@ -282,7 +263,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Gesture/access flags: `IsTapEnabled` / `IsHoldingEnabled` / `IsDoubleTapEnabled` / `IsRightTapEnabled`, `AccessKey`, `CharacterReceived` | 🟡 | Those specific flags no-op; basic pointer/click still works. |
 | High-contrast / forced-colors detection | ❌ | `AccessibilitySettings.HighContrast` not implemented — charts don't adapt to high contrast. |
 | Single window + render loop + error fallback | ✅ | |
-| Safe area (status/navigation bar, notch, cutouts) | ✅ Android · 🟡 iOS | On by default for all edges; `ReactorHost.SafeAreaEdges` picks which edges are padded (`None` turns it off). Uses Uno's `VisibleBoundsPadding` on the window root, so it pads the whole app, not individual elements, and ignores the soft keyboard. Verified on a Pixel 8 in portrait and landscape; iOS runs the same code but is unverified (see the black bars above). |
+| Safe area (status/navigation bar, notch, cutouts) | ✅ Android · 🟡 iOS | On by default for all edges; `ReactorHost.SafeAreaEdges` picks which edges are padded (`None` turns it off). Uses Uno's `VisibleBoundsPadding` on the window root, so it pads the whole app, not individual elements, and ignores the soft keyboard. Verified on a Pixel 8 in portrait and landscape; iOS runs the same code but is unverified (see [Safe area](#safe-area)). |
 | Multi-window (`OpenWindow` / `UseOpenWindow`) | ✅ desktop | Real secondary windows on every desktop head (X11 / Win32 / macOS / FrameBuffer), each with its own `ReactorHost`, render loop and state. Android/iOS throw `InvalidOperationException` (Uno doesn't support secondary windows there) — `UseOpenWindow` catches it and degrades to a null handle. No OS windows in the browser (wasm). Demoed in `samples/Uno/ReactorUnoShowcase`. |
 | DPI (`UseDpi`) | ✅ | Per-window DPI from `XamlRoot.RasterizationScale`, and live changes (window dragged to a monitor with a different scale, or the display scale changed) re-render via `XamlRoot.Changed`. Correctly per-window, since each window has its own `XamlRoot`. |
 | File / folder pickers (`UseFilePickerAsync` / `UseFolderPickerAsync`) | ✅ desktop | Uno implements the WinRT pickers. The shared hook's `WindowNative.GetWindowHandle` + `InitializeWithWindow` association is exactly the initialization Uno's own docs prescribe for Uno.WinUI apps — it is not a Windows-only path. On **wasm** it depends on the browser: Uno uses the File System Access API where available (Chromium) and falls back to download/upload pickers; `FolderPicker` needs the File System Access API. Demoed in `samples/Uno/ReactorUnoShowcase`. |
@@ -392,3 +373,24 @@ heads run as-is; no separate mobile head project is needed. Only the entry point
 is platform-specific (see [Status](#status)), and the framework code itself is
 platform-agnostic `Microsoft.UI.Xaml`. Deploy commands are in
 [samples/Uno](../../samples/Uno/README.md#android--ios).
+
+### Safe area
+
+On Android and iOS the app is kept clear of the status bar, navigation bar,
+notch and display cutouts: Uno draws mobile apps edge-to-edge, so the host pads
+its window root to the window's visible bounds. Component code needs nothing for
+this. An app that draws under the bars itself picks the edges to keep padded when
+it creates the host, e.g. `SafeAreaEdges.None` for fully edge-to-edge, or
+`SafeAreaEdges.Bottom` to let a header run under the status bar:
+
+```csharp
+using Microsoft.UI.Reactor.Hosting;
+
+ReactorApp.CreateHost<CounterApp>("My App", configure: host => host.SafeAreaEdges = SafeAreaEdges.None);
+```
+
+On a padded edge, the bar shows the page background, not the app root's own
+background. It doesn't move content out from under the soft keyboard.
+
+Known mobile layout gap: on iOS the window doesn't fill the screen (black bars
+above and below), so the padding hasn't been seen working there yet.
