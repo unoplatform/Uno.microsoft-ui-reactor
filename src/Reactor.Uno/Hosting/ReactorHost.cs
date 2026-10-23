@@ -15,6 +15,9 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Reactor.Animation;
 using Microsoft.UI.Reactor.Core;
+#if __ANDROID__ || __IOS__
+using PaddingMask = Uno.UI.Behaviors.VisibleBoundsPadding.PaddingMask;
+#endif
 
 namespace Microsoft.UI.Reactor.Hosting;
 
@@ -75,6 +78,31 @@ public sealed class ReactorHost : IDisposable
 
     /// <summary>When set, Reactor renders into this Border instead of Window.Content.</summary>
     public Microsoft.UI.Xaml.Controls.Border? ContentTarget { get; set; }
+
+    /// <summary>
+    /// The edges on which the app is kept clear of the status bar, navigation bar,
+    /// notch and display cutouts on Android and iOS. Defaults to
+    /// <see cref="SafeAreaEdges.All"/>; set it from the <c>configure</c> callback
+    /// for an app that draws under some or all of them itself, e.g.
+    /// <see cref="SafeAreaEdges.None"/> for edge-to-edge.
+    /// </summary>
+    /// <remarks>
+    /// Uno draws mobile apps edge-to-edge, so this pads the host's window root to
+    /// the window's visible bounds on the selected edges. The window root keeps
+    /// painting the page background under the bars; the app's own root does not
+    /// extend there. Has no effect on other platforms, or when
+    /// <see cref="ContentTarget"/> is set, since the caller owns that container.
+    /// </remarks>
+    public SafeAreaEdges SafeAreaEdges
+    {
+        get => _safeAreaEdges;
+        set
+        {
+            _safeAreaEdges = value;
+            ApplySafeAreaPadding();
+        }
+    }
+    private SafeAreaEdges _safeAreaEdges = SafeAreaEdges.All;
 
     internal Component? RootComponent => _rootComponent;
     internal UIElement? CurrentControl => _currentControl;
@@ -458,9 +486,34 @@ public sealed class ReactorHost : IDisposable
             _windowRoot = new Microsoft.UI.Xaml.Controls.Border();
         }
 
+        ApplySafeAreaPadding();
         _window.Content = _windowRoot;
         return _windowRoot;
     }
+
+    // Mobile only. VisibleBoundsPadding reads ApplicationView.GetForCurrentView(),
+    // which is single-window: on a multi-window desktop head a secondary window
+    // would be padded to the main window's bounds.
+    private void ApplySafeAreaPadding()
+    {
+#if __ANDROID__ || __IOS__
+        if (_windowRoot is null) return;
+        Uno.UI.Behaviors.VisibleBoundsPadding.SetPaddingMask(_windowRoot, ToPaddingMask(_safeAreaEdges));
+#endif
+    }
+
+#if __ANDROID__ || __IOS__
+    // Mapped flag by flag, so it doesn't depend on the two enums sharing values.
+    private static PaddingMask ToPaddingMask(SafeAreaEdges edges)
+    {
+        var mask = PaddingMask.None;
+        if (edges.HasFlag(SafeAreaEdges.Top)) mask |= PaddingMask.Top;
+        if (edges.HasFlag(SafeAreaEdges.Bottom)) mask |= PaddingMask.Bottom;
+        if (edges.HasFlag(SafeAreaEdges.Left)) mask |= PaddingMask.Left;
+        if (edges.HasFlag(SafeAreaEdges.Right)) mask |= PaddingMask.Right;
+        return mask;
+    }
+#endif
 
     // The {ThemeResource} binding above re-resolves itself on theme change, so
     // nothing to re-apply here; kept as a seam for heads where the markup path
