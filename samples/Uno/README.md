@@ -21,9 +21,17 @@ outside this repo, replace that `ProjectReference` with a `PackageReference` to
 ## Prerequisites
 
 - **.NET 10 SDK** (`10.0.100`+ — see [`global.json`](global.json))
-- The **`wasm-tools`** workload for the WebAssembly target: `dotnet workload install wasm-tools`
-- The **`android`** / **`ios`** workloads for the mobile heads: `dotnet workload install android ios`
-  (iOS compiles on Windows; deploying to a device still needs a Mac)
+- **[uno-check](https://platform.uno/docs/articles/external/uno.check/doc/using-uno-check.html)**
+  for the rest: the `wasm-tools`, `android` and `ios` workloads, the Android SDK
+  and a JDK. Add `--target desktop`, `wasm`, `android` or `ios` (repeatable) to
+  set up only the heads you need.
+
+  ```bash
+  dotnet tool install -g uno.check
+  uno-check
+  ```
+
+iOS compiles on Windows; deploying to a device still needs a Mac.
 
 The Uno projects resolve `Uno.Sdk` from the nearby `global.json` and restore from
 `nuget.org` only (see [`nuget.config`](nuget.config)); they do **not** inherit the
