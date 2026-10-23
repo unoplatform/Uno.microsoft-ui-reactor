@@ -115,6 +115,11 @@ jobs:
       - name: Build WebAssembly
         run: dotnet build Reactor.Uno.slnx -f net10.0-browserwasm -c Debug -bl:artifacts-logs/build-wasm.binlog
 
+      # Runtime check on the build above: serve the counter, open it with ?smoke in headless
+      # Chrome, and read the result the app logs to the browser console.
+      - name: Smoke test WebAssembly
+        run: ./samples/Uno/ReactorUnoCounter/smoke-wasm.ps1
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
