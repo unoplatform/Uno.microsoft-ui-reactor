@@ -314,8 +314,9 @@ handlerActions.UpdateApplication.ForEach(a => a(updatedTypes));
 ```
 
 So on the targets where the Uno **Dev Server** delivers the deltas rather than
-`dotnet watch` — WebAssembly, Android, iOS — Uno drives Reactor's re-render for
-free, with no Reactor-side work at all.
+`dotnet watch` — WebAssembly, Android, iOS — Uno should drive Reactor's re-render
+for free, with no Reactor-side work at all. That follows from the code above; it
+hasn't been run on those targets yet.
 
 Nothing has to be opted into for this. There is **no `HotReload` UnoFeature**
 (passing one just warns `Unable to parse 'hotreload' to a known Uno Feature` and
@@ -347,6 +348,12 @@ when hot-reloading from the CLI, either single-target the head or use an IDE
 (VS / VS Code / Rider), which drives the Uno Dev Server and picks one TFM per
 debug session. The unrelated `Found project reference without a matching
 metadata reference` warning is benign — it is present in the working case too.
+
+All the samples list four TFMs, so this hits each of them as shipped (re-checked
+on SDK 10.0.401 with `ReactorUnoCounter`). Overriding the list from the command
+line (`dotnet watch --property:TargetFrameworks=net10.0-desktop`) doesn't help:
+the global property also reaches the referenced source-generator project, which
+fails with `NETSDK1139`. Edit the head's `<TargetFrameworks>` instead.
 
 ## Known limitations / notes
 

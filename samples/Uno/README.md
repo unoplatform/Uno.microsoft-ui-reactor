@@ -125,15 +125,21 @@ dotnet build Reactor.Uno.slnx -f net10.0-ios
 
 ## Hot Reload
 
-`dotnet watch` (desktop) and the Uno Dev Server (wasm / Android / iOS) both
-re-render edits to a `Component.Render()` body live, preserving `UseState`.
+Edits to a `Component.Render()` body re-render the running app and keep
+`UseState`. This has only been tried on desktop; on wasm, Android and iOS the Uno
+Dev Server should drive it the same way, but that hasn't been run yet. How it
+works is in the port README's [Hot Reload](../../src/Reactor.Uno/README.md#hot-reload)
+section.
 
-No opt-in is required: there is **no `HotReload` UnoFeature**, the dev-server
-client is referenced automatically in Debug builds, and the Dev Server itself is
-started by the IDE. (`.UseStudio()` is not needed either — that enables **Hot
-Design**, Uno's runtime *XAML* designer, which doesn't apply to a XAML-free
-framework.)
+**From the CLI, `dotnet watch` doesn't work on these samples as they are.** They
+target four frameworks, and `dotnet watch` against a multi-targeted head fails
+every edit with `CS0518`
+([details](../../src/Reactor.Uno/README.md#caveat-multi-targeted-heads-under-dotnet-watch)).
+Either use an IDE, which picks one target per debug session, or cut the sample's
+`<TargetFrameworks>` down to `net10.0-desktop` while you work:
 
-One caveat: from the CLI, `dotnet watch -f <tfm>` only works against a
-**single-targeted** head — see
-[the Hot Reload section in the port README](../../src/Reactor.Uno/README.md#hot-reload).
+```bash
+# after editing ReactorUnoCounter.csproj to <TargetFrameworks>net10.0-desktop</TargetFrameworks>
+cd samples/Uno/ReactorUnoCounter
+dotnet watch
+```
