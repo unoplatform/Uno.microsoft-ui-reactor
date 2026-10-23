@@ -46,7 +46,8 @@ repo-root Windows/WinAppSDK build infrastructure.
 cd samples/Uno/ReactorUnoCounter
 dotnet run -f net10.0-desktop
 
-# WebAssembly (opens a localhost URL in your browser)
+# WebAssembly (serves the app and prints "App url: http://127.0.0.1:<port>/";
+# open that URL in a browser)
 dotnet run -f net10.0-browserwasm
 ```
 
