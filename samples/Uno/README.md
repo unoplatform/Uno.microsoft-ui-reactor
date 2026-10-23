@@ -14,6 +14,10 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 All three app samples are **single Uno projects targeting all four heads** — the
 `Component` source is identical everywhere; only the entry point differs.
 
+The samples reference the port as a project (`src/Reactor.Uno`). To use one
+outside this repo, replace that `ProjectReference` with a `PackageReference` to
+[`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor).
+
 ## Prerequisites
 
 - **.NET 10 SDK** (`10.0.100`+ — see [`global.json`](global.json))
