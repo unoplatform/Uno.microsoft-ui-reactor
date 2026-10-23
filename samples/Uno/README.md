@@ -110,13 +110,8 @@ dotnet run Counter.cs
 
 ## Build the whole Uno set
 
-From the repo root:
-
-```bash
-dotnet build Reactor.Uno.slnx
-```
-
-The solution builds per-TFM across all four heads:
+From the repo root, one head at a time, as CI does (each needs that head's
+workload):
 
 ```bash
 dotnet build Reactor.Uno.slnx -f net10.0-desktop
