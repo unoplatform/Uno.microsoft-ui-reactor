@@ -39,7 +39,7 @@ repo-root Windows/WinAppSDK build infrastructure.
 
 ## Run
 
-### ReactorUnoCounter / ReactorUnoShowcase
+### Desktop / WebAssembly
 
 ```bash
 # Desktop (X11 / Win32 / macOS / FrameBuffer — picked at runtime)
