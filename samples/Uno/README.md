@@ -59,7 +59,8 @@ clicks "+" once, verifies the re-render, and exits 0 (pass) or 1 (fail, after 60
 For WebAssembly, build with `-f net10.0-browserwasm` and run
 `./smoke-wasm.ps1` (PowerShell 7). It serves the build, opens it with
 `?smoke` in headless Chrome or Edge, and exits with the result the app logs to the
-browser console.
+browser console. It only looks for the browser in the Windows install folders;
+elsewhere, pass `-Browser <path>`.
 
 ### Android / iOS
 
