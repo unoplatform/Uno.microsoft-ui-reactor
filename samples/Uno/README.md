@@ -1,7 +1,7 @@
 # Reactor on Uno Platform — samples
 
 Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
-(desktop, WebAssembly, Android), backed by the
+(desktop, WebAssembly, Android, iOS), backed by the
 [`Reactor.Uno`](../../src/Reactor.Uno) port library.
 
 | Sample | What it shows | Targets |
