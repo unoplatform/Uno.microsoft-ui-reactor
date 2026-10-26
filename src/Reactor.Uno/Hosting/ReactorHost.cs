@@ -493,10 +493,12 @@ public sealed class ReactorHost : IDisposable
                         Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" />
                 """);
         }
-        catch
+        catch (Exception ex)
         {
             // XamlReader unavailable on this head — fall back to an unpainted root
-            // rather than failing the render.
+            // rather than failing the render. Logged, because the window then shows
+            // black wherever the app leaves its content transparent.
+            _logger?.LogWarning(ex, "Window root: themed Border failed to load; using an unpainted root");
             _windowRoot = new Microsoft.UI.Xaml.Controls.Border();
         }
 
