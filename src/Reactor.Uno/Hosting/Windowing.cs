@@ -543,13 +543,11 @@ public sealed class ReactorWindow
         {
             _mountedTitleBars.Remove(unmounting);
 
-            if (_mountedTitleBars.Count > 0)
-            {
-                // A dead weak target counts as "the writer is gone" too.
-                if (_titleBarControl is null
-                    || (_titleBarControl.TryGetTarget(out var writer) && !ReferenceEquals(writer, unmounting)))
-                    return;
-            }
+            // A dead weak target counts as "the writer is gone" too.
+            if (_mountedTitleBars.Count > 0
+                && (_titleBarControl is null
+                    || (_titleBarControl.TryGetTarget(out var writer) && !ReferenceEquals(writer, unmounting))))
+                return;
         }
 
         _titleBarControl = null;
