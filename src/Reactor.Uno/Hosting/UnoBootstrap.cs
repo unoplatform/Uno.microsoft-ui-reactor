@@ -1,9 +1,11 @@
 // Uno host-builder bootstrap + code-only Application subclass.
 //
-// Uno 6 unifies hosting behind UnoPlatformHostBuilder (Uno.UI.Hosting). The
-// platform providers are compiled per-TFM: __WASM__ gets UseWebAssembly(); the
-// desktop TFM gets the X11/Framebuffer/macOS/Win32 providers (the builder picks
-// the one available at runtime).
+// Uno hosts every head behind UnoPlatformHostBuilder (Uno.UI.Hosting). Each
+// platform provider's Use*() extension lives in a runtime package that only its
+// own TFM references, so the providers are picked per-TFM: wasm gets
+// UseWebAssembly(), iOS UseAppleUIKit(), Android UseAndroid(), and desktop the
+// X11/Framebuffer/macOS/Win32 providers (the builder picks the one available at
+// runtime).
 
 using System;
 using System.Threading;
