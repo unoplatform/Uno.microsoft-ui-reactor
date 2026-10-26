@@ -77,9 +77,32 @@ cd samples/Uno/ReactorUnoCounter
 # Deploy + launch on a connected device or emulator (check `adb devices` first)
 dotnet build -f net10.0-android -t:Run
 
-# iOS — compiles on Windows; deploying to a device needs a Mac
+# iOS — compiles on Windows; running it needs a Mac
 dotnet build -f net10.0-ios
 ```
+
+On a Mac, to run on the iOS Simulator, boot a simulator first
+(`xcrun simctl list devices booted` shows it), then build for the simulator and
+install the app on it. Use `iossimulator-arm64` on Apple silicon and
+`iossimulator-x64` on an Intel Mac (`uname -m`):
+
+```bash
+cd samples/Uno/ReactorUnoCounter
+dotnet build -f net10.0-ios -p:RuntimeIdentifier=iossimulator-arm64
+xcrun simctl install booted bin/Debug/net10.0-ios/iossimulator-arm64/ReactorUnoCounter.app
+xcrun simctl launch booted dev.reactor.unocounter
+```
+
+The other bundle IDs are `dev.reactor.unoshowcase` and `dev.reactor.gallery`
+(`ApplicationId` in each `.csproj`). A Debug build takes 30–40 seconds to show its
+first page on the simulator.
+
+> These steps were run on an Intel Mac with Xcode 26.2 (iPhone 17 Pro simulator,
+> iOS 26.3), for the counter and the gallery. That iOS workload wanted a newer
+> Xcode, so the run targeted the older SDK pack instead: `net10.0-ios` changed to
+> `net10.0-ios26.0` in the sample's and `src/Reactor.Uno`'s `.csproj` files (a
+> local edit, not committed), plus `-p:ValidateXcodeVersion=false` on the build.
+> If your Xcode matches your iOS workload, you don't need either.
 
 > **Don't sideload the Debug APK.** A Debug Android build uses .NET's *Fast
 > Deployment*: the managed assemblies are **not inside the APK** — the deploy
