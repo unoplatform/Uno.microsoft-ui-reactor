@@ -159,10 +159,9 @@ target four frameworks, and `dotnet watch` against a multi-targeted head fails
 every edit with `CS0518`
 ([details](../../src/Reactor.Uno/README.md#caveat-multi-targeted-heads-under-dotnet-watch)).
 Either use an IDE, which picks one target per debug session, or cut the sample's
-`<TargetFrameworks>` down to `net10.0-desktop` while you work:
+target list down to `net10.0-desktop` from the command line:
 
 ```bash
-# after editing ReactorUnoCounter.csproj to <TargetFrameworks>net10.0-desktop</TargetFrameworks>
 cd samples/Uno/ReactorUnoCounter
-dotnet watch
+dotnet watch --property:TargetFrameworks=net10.0-desktop
 ```

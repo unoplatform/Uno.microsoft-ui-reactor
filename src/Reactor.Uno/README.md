@@ -372,10 +372,17 @@ debug session. The unrelated `Found project reference without a matching
 metadata reference` warning is benign — it is present in the working case too.
 
 All the samples list four TFMs, so this hits each of them as shipped (re-checked
-on SDK 10.0.401 with `ReactorUnoCounter`). Overriding the list from the command
-line (`dotnet watch --property:TargetFrameworks=net10.0-desktop`) doesn't help:
-the global property also reaches the referenced source-generator project, which
-fails with `NETSDK1139`. Edit the head's `<TargetFrameworks>` instead.
+on SDK 10.0.401 with `ReactorUnoCounter`). You don't have to edit the csproj to
+single-target the head. You can override the list from the command line instead:
+
+```bash
+cd samples/Uno/ReactorUnoCounter
+dotnet watch --property:TargetFrameworks=net10.0-desktop
+```
+
+An edit to `Program.cs` then reports `🔥 C# and Razor changes applied`. This
+override used to fail with `NETSDK1139`, because the global property also
+reached the source-generator project.
 
 ## Known limitations / notes
 
