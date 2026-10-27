@@ -9,7 +9,7 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 | [`ReactorUnoCounter`](ReactorUnoCounter) | Minimal counter — the smallest Reactor-on-Uno app | desktop, wasm, android, ios |
 | [`ReactorUnoShowcase`](ReactorUnoShowcase) | ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, file picker, multi-window (desktop only) | desktop, wasm, android, ios |
 | [`ReactorGalleryUno`](ReactorGalleryUno) | The Reactor gallery, sharing [`samples/ReactorGallery`](../ReactorGallery)'s source; the docking and WebView2 pages are stand-ins | desktop, wasm, android, ios |
-| [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop |
+| [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm with [a header change](../../src/Reactor.Uno/README.md#run-on-webassembly-instead) |
 
 All three app samples are **single Uno projects targeting all four heads** — the
 `Component` source is identical everywhere; only the entry point differs (see
@@ -159,10 +159,9 @@ target four frameworks, and `dotnet watch` against a multi-targeted head fails
 every edit with `CS0518`
 ([details](../../src/Reactor.Uno/README.md#caveat-multi-targeted-heads-under-dotnet-watch)).
 Either use an IDE, which picks one target per debug session, or cut the sample's
-`<TargetFrameworks>` down to `net10.0-desktop` while you work:
+target list down to `net10.0-desktop` from the command line:
 
 ```bash
-# after editing ReactorUnoCounter.csproj to <TargetFrameworks>net10.0-desktop</TargetFrameworks>
 cd samples/Uno/ReactorUnoCounter
-dotnet watch
+dotnet watch --property:TargetFrameworks=net10.0-desktop
 ```

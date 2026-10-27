@@ -96,12 +96,27 @@ dotnet run Counter.cs
 
 ### Run on WebAssembly instead
 
-A file-based app doesn't run in the browser yet. With
-`#:property TargetFramework=net10.0-browserwasm`, the build produces no browser
-package (`wwwroot`), and `dotnet run` starts the app as a console process, which
-fails to load ICU. Use a project instead:
-[`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) runs on both
-from one source, with the same `ReactorApp.Run` call on each:
+A single file-based app targets one TFM at a time. For WASM, replace the
+`TargetFramework` line with these two and keep the same `ReactorApp.Run` call:
+
+```csharp
+#:property TargetFramework=
+#:property TargetFrameworks=net10.0-browserwasm
+```
+
+`dotnet run Counter.cs` then prints a localhost URL — open it.
+
+A plain `#:property TargetFramework=net10.0-browserwasm` doesn't work. Uno.Sdk
+picks the WebAssembly SDK from the target framework before it reads the file's
+`#:property` lines, so that build is an ordinary console app with no `wwwroot`,
+and it crashes at launch with `Failed to load 'icuuc77'`. With `TargetFrameworks`,
+the target framework reaches the build from outside, as it does for a project's
+`dotnet build -f`, early enough for Uno.Sdk to see it. The empty
+`TargetFramework` clears the `net10.0` default that a file-based app gets.
+
+[`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
+multi-targeted project that runs on both from one source, with the same
+`ReactorApp.Run` call on each:
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
@@ -357,10 +372,17 @@ debug session. The unrelated `Found project reference without a matching
 metadata reference` warning is benign — it is present in the working case too.
 
 All the samples list four TFMs, so this hits each of them as shipped (re-checked
-on SDK 10.0.401 with `ReactorUnoCounter`). Overriding the list from the command
-line (`dotnet watch --property:TargetFrameworks=net10.0-desktop`) doesn't help:
-the global property also reaches the referenced source-generator project, which
-fails with `NETSDK1139`. Edit the head's `<TargetFrameworks>` instead.
+on SDK 10.0.401 with `ReactorUnoCounter`). You don't have to edit the csproj to
+single-target the head. You can override the list from the command line instead:
+
+```bash
+cd samples/Uno/ReactorUnoCounter
+dotnet watch --property:TargetFrameworks=net10.0-desktop
+```
+
+An edit to `Program.cs` then reports `🔥 C# and Razor changes applied`. This
+override used to fail with `NETSDK1139`, because the global property also
+reached the source-generator project.
 
 ## Known limitations / notes
 
