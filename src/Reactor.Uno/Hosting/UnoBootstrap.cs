@@ -86,6 +86,9 @@ internal sealed class ReactorApplication : Application
 {
     private ReactorWindow? _primary;
 
+    // Where a XAML app's generated InitializeComponent connects to the Dev Server.
+    public ReactorApplication() => DevServerConnection.TryConnect(ReactorApp.Options.AppType);
+
     /// <summary>
     /// The shared unhandled-exception path: logs through <see cref="ReactorApp.AppLogger"/>
     /// and asks <see cref="ReactorApp.OnUnhandledException"/>. Also used by the shared
