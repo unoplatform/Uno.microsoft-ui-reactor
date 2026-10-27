@@ -20,9 +20,17 @@ static class SmokeTest
 {
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
+    /// <summary><c>--smoke</c> on the command line, or <c>?smoke</c> in the page URL on WebAssembly.</summary>
+    public static bool Requested(string[] args) =>
+#if __WASM__
+        RequestedByPageUrl();
+#else
+        Array.IndexOf(args, "--smoke") >= 0;
+#endif
+
 #if __WASM__
     // OperatingSystem.IsBrowser() is for CA1416, which doesn't count Uno's "BrowserWasm" as "browser".
-    public static bool RequestedByPageUrl() =>
+    static bool RequestedByPageUrl() =>
         OperatingSystem.IsBrowser()
         && System.Runtime.InteropServices.JavaScript.JSHost.GlobalThis
             .GetPropertyAsJSObject("location")?.GetPropertyAsString("search")?.Contains("smoke") == true;

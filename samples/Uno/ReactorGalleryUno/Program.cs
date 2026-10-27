@@ -13,10 +13,6 @@ using WinUIGalleryReactor;
 // benefits from the OS-chosen default window size.
 #if __ANDROID__
 // intentionally empty — Android starts from the Application in Platforms/Android/
-#elif __WASM__
-await ReactorApp.RunAsync<GalleryShell>(
-    "Reactor Gallery (Uno)",
-    configure: static host => XamlInterop.Register(host.Reconciler));
 #else
 ReactorApp.Run<GalleryShell>(
     "Reactor Gallery (Uno)",

@@ -10,13 +10,11 @@ using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using static Microsoft.UI.Reactor.Factories;
 
-// Desktop and iOS share ReactorApp.Run; wasm needs the async entry (the browser
-// thread can't block); Android has no console entry point — the OS starts the
-// Application in Platforms/Android/, whose CreateHost calls ReactorApp.CreateHost<Showcase>().
+// Desktop, wasm and iOS share ReactorApp.Run; Android has no console entry point —
+// the OS starts the Application in Platforms/Android/, whose CreateHost calls
+// ReactorApp.CreateHost<Showcase>().
 #if __ANDROID__
 // intentionally empty — see Platforms/Android/
-#elif __WASM__
-await ReactorApp.RunAsync<Showcase>("Reactor Showcase (Uno)", width: 560, height: 620);
 #else
 ReactorApp.Run<Showcase>("Reactor Showcase (Uno)", width: 560, height: 620);
 #endif

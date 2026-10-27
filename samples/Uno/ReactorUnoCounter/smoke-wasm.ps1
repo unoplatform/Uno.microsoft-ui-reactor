@@ -75,8 +75,9 @@ try {
         $log = Read-Log $browserLog
         # Console lines look like: [...:INFO:CONSOLE:3] "[smoke] PASS: ...", source: http://... (3)
         if ($log -match '(?m)\[smoke\] (PASS|FAIL).*?(?=", source: |$)') { $result = $Matches[0]; break }
-        # An exception escaping the app's Main: it never gets as far as the smoke check.
-        if ($log -match '(?m)"(Uncaught .*?)", source: \S*/_framework/dotnet\.') { throw "The app crashed: $($Matches[1])" }
+        # The app failed to start, so it never gets as far as the smoke check: an exception
+        # escaping Main, or a startup failure ReactorApp.Run reports after Main has returned.
+        if ($log -match '(?m)"((?:Uncaught|Reactor app failed to start:) .*?)", source: \S*/_framework/dotnet\.') { throw "The app crashed: $($Matches[1])" }
         if ($browserProcess.HasExited) { throw "The browser exited (code $($browserProcess.ExitCode)) with no smoke result." }
         if ((Get-Date) -gt $deadline) { throw "No smoke result within $TimeoutSeconds s." }
         Start-Sleep -Milliseconds 500
