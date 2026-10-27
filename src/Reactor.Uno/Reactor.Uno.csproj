@@ -54,6 +54,9 @@
     <RepositoryUrl>https://github.com/unoplatform/uno.microsoft-ui-reactor</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Ships Reactor.xml (IntelliSense) for every TFM; only the Android SDK turned it
+         on by default. CS1591 is already silenced in Directory.Build.props. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
