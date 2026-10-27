@@ -1,6 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishTrimmed">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishTrimmed;TargetFramework">
 
   <PropertyGroup>
+    <!-- TreatAsLocalProperty lets this win over a global TargetFramework.
+         `dotnet run App.cs` on a file-based Uno app that sets TargetFrameworks
+         passes the TFM it picked (e.g. net10.0-browserwasm) to every project
+         its restore reaches, and this one would fail with NETSDK1139. -->
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
