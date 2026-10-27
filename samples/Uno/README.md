@@ -154,12 +154,10 @@ Dev Server should drive it the same way, but that hasn't been run yet. How it
 works is in the port README's [Hot Reload](../../src/Reactor.Uno/README.md#hot-reload)
 section.
 
-**From the CLI, `dotnet watch` doesn't work on these samples as they are.** They
-target four frameworks, and `dotnet watch` against a multi-targeted head fails
-every edit with `CS0518`
-([details](../../src/Reactor.Uno/README.md#caveat-multi-targeted-heads-under-dotnet-watch)).
-Either use an IDE, which picks one target per debug session, or cut the sample's
-target list down to `net10.0-desktop` from the command line:
+**From the CLI, tell `dotnet watch` which target to run.** The samples target four
+frameworks; cut the list down to `net10.0-desktop` from the command line
+([details](../../src/Reactor.Uno/README.md#from-the-command-line)). An IDE picks one
+target per debug session by itself.
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
