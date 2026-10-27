@@ -53,11 +53,15 @@
     <PackageProjectUrl>https://github.com/unoplatform/uno.microsoft-ui-reactor</PackageProjectUrl>
     <RepositoryUrl>https://github.com/unoplatform/uno.microsoft-ui-reactor</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" Visible="false" />
     <None Include="Icon.png" Pack="true" PackagePath="" Visible="false" />
+    <!-- README.md in this folder is for contributors (in-repo paths); the package
+         gets a consumer quick start instead, under the name NuGet expects. -->
+    <None Include="PackageReadme.md" Pack="true" PackagePath="README.md" Visible="false" />
   </ItemGroup>
 
   <!-- Uno.Sdk globs **\*.png as Content after this file is read, so a Content Remove
