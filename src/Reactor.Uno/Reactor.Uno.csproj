@@ -37,6 +37,36 @@
     </UnoFeatures>
   </PropertyGroup>
 
+  <!-- NuGet metadata. Set here because Directory.Build.props stops the walk-up to
+       the root one, and Uno's shared Directory.UnoMetadata.targets is deliberately
+       not used: it defaults the license to Apache-2.0, while the packed source is
+       Microsoft's MIT code. LICENSE is packed as well so its copyright notice
+       travels with the package, as MIT requires. -->
+  <PropertyGroup>
+    <Authors>Uno Platform</Authors>
+    <Company>Uno Platform</Company>
+    <Description>Microsoft.UI.Reactor, the functional, declarative UI framework for WinUI 3, on Uno Platform: the same Reactor code on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS.</Description>
+    <PackageTags>Uno;UnoPlatform;WinUI;Reactor;cross-platform;desktop;WebAssembly;Android;iOS;UI;declarative;functional;components;hooks;MVU</PackageTags>
+    <Copyright>© Microsoft Corporation (Reactor). Uno Platform port © Uno Platform inc.</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageIcon>Icon.png</PackageIcon>
+    <PackageProjectUrl>https://github.com/unoplatform/uno.microsoft-ui-reactor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/unoplatform/uno.microsoft-ui-reactor</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" Visible="false" />
+    <None Include="Icon.png" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
+
+  <!-- Uno.Sdk globs **\*.png as Content after this file is read, so a Content Remove
+       here is too early; without the exclude the icon is also packed into content/,
+       contentFiles/ and every lib/ folder. It belongs at the package root only. -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Icon.png</DefaultItemExcludes>
+  </PropertyGroup>
+
   <!-- ── Shared source from the Windows framework ──
        Portable subsystems, source-shared verbatim from BOTH src/Reactor (core)
        and src/Reactor.Advanced (the charting / markdown / data-grid subsystems,
