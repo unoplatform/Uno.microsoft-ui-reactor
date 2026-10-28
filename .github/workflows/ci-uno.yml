@@ -13,9 +13,10 @@ name: CI (Uno)
 # reports on every PR. There is no path filter for the same reason: a required check must always run,
 # and the Uno build must also run when Microsoft's changes are pulled in from `main`.
 #
-# "Run the file-based app from the package" is the consumer check: it runs the single-file sample
-# against the packed Uno.Microsoft.UI.Reactor, outside the checkout, so a package that builds but
-# can't be consumed fails the "Uno CI result" check and is never signed or published.
+# "Run the file-based app from the package" (ci-uno-consume-file-based.yml) is the consumer check:
+# it runs the single-file sample against the packed Uno.Microsoft.UI.Reactor, outside the checkout,
+# so a package that builds but can't be consumed fails the "Uno CI result" check and is never
+# signed or published.
 #
 # "Build Reactor (Windows)" builds Microsoft's Reactor.slnx the way their CI does, to catch changes to
 # the shared source (src/Reactor) that break the Windows side. It is not part of "Uno CI result".
@@ -265,47 +266,13 @@ jobs:
           path: artifacts-logs
           if-no-files-found: ignore
 
-  # The single-file app the way a consumer runs it (smoke-package.ps1): Counter.cs with its
-  # `#:project` line rewritten to `#:package Uno.Microsoft.UI.Reactor@[<version>]`, restored from
-  # the package above into a private NUGET_PACKAGES, in a folder outside the checkout, then run
-  # on desktop with a click through UI Automation.
+  # The single-file app run from the package above, outside the checkout (see the called workflow).
   consume-file-based:
-    name: Run the file-based app from the package (desktop)
+    name: Run the file-based app from the package
     needs: pack
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          sparse-checkout: samples/Uno/file-based
-
-      - name: Download packages
-        uses: actions/download-artifact@v4
-        with:
-          name: NuGet
-          path: ${{ runner.temp }}/feed
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Run Counter.cs from the package
-        run: >-
-          ./samples/Uno/file-based/smoke-package.ps1
-          -Feed "${{ runner.temp }}/feed"
-          -Version "${{ needs.pack.outputs.version }}"
-          -WorkDir "${{ runner.temp }}/consumer"
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-consume-file-based
-          path: |
-            ${{ runner.temp }}/consumer/*.binlog
-            ${{ runner.temp }}/consumer/*.log
-          if-no-files-found: ignore
+    uses: ./.github/workflows/ci-uno-consume-file-based.yml
+    with:
+      version: ${{ needs.pack.outputs.version }}
 
   # The single required check for the Uno port. Skipped jobs (no port on the branch yet) pass.
   result:

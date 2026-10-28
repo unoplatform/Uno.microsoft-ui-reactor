@@ -1,0 +1,64 @@
+name: CI (Uno) - consume the package
+
+# Called by ci-uno.yml after its `pack` job; not triggered on its own. It runs in the caller's
+# workflow run, so it can download the run's `NuGet` artifact.
+#
+# The single-file app the way a consumer runs it (samples/Uno/file-based/smoke-package.ps1):
+# Counter.cs with its `#:project` line rewritten to `#:package Uno.Microsoft.UI.Reactor@[<version>]`,
+# restored from the packed package into a private NUGET_PACKAGES, in a folder outside the checkout,
+# then run on desktop with a click through UI Automation.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version of the Uno.Microsoft.UI.Reactor package in the `NuGet` artifact.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Workflow-level env is not passed down from the caller.
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: 1
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  desktop:
+    name: desktop
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: samples/Uno/file-based
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: NuGet
+          path: ${{ runner.temp }}/feed
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Run Counter.cs from the package
+        run: >-
+          ./samples/Uno/file-based/smoke-package.ps1
+          -Feed "${{ runner.temp }}/feed"
+          -Version "${{ inputs.version }}"
+          -WorkDir "${{ runner.temp }}/consumer"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-consume-file-based
+          path: |
+            ${{ runner.temp }}/consumer/*.binlog
+            ${{ runner.temp }}/consumer/*.log
+          if-no-files-found: ignore
