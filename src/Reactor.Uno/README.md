@@ -406,6 +406,9 @@ reached the source-generator project.
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK
   automatically — don't hardcode a version for them (it drifts and trips `NU1605`).
+  They are `PrivateAssets="all"`: Reactor.Uno needs them only to compile its host
+  bootstrap, and every Uno.Sdk app head references them itself, so the package
+  doesn't list them as dependencies.
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
