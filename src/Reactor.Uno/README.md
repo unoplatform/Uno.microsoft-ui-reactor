@@ -365,36 +365,28 @@ migrates hook cells whose types were edited, and treats a `HookOrderException` a
 "the edit changed the hook shape" — it drops that context's hook state and
 remounts instead of showing the error overlay.
 
-### Caveat: multi-targeted heads under `dotnet watch`
+### From the command line
 
-`dotnet watch -f <tfm>` against an app head whose csproj lists **more than one**
-TFM currently loads a Roslyn workspace with no references, and every edit fails
-with a wall of `CS0518: Predefined type 'System.Object' is not defined`. This is
-not Reactor-specific — it reproduces from the TFM list alone:
-
-| Head `TargetFrameworks` | Result |
-| --- | --- |
-| `net10.0-desktop;net10.0-browserwasm` | ❌ `CS0518` cascade, hot reload dead |
-| `net10.0-desktop` | ✅ `🔥 C# changes applied` |
-
-The referenced library may stay multi-targeted — only the **head** matters. So
-when hot-reloading from the CLI, either single-target the head or use an IDE
-(VS / VS Code / Rider), which drives the Uno Dev Server and picks one TFM per
-debug session. The unrelated `Found project reference without a matching
-metadata reference` warning is benign — it is present in the working case too.
-
-All the samples list four TFMs, so this hits each of them as shipped (re-checked
-on SDK 10.0.401 with `ReactorUnoCounter`). You don't have to edit the csproj to
-single-target the head. You can override the list from the command line instead:
+The samples target four frameworks, so `dotnet watch` has to be told which one to
+run. Override the target list from the command line:
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
 dotnet watch --property:TargetFrameworks=net10.0-desktop
 ```
 
-An edit to `Program.cs` then reports `🔥 C# and Razor changes applied`. This
-override used to fail with `NETSDK1139`, because the global property also
-reached the source-generator project.
+An edit to `Program.cs` then reports `🔥 C# and Razor changes applied`. The
+override restores the head and `Reactor.Uno` for desktop only, so run a plain
+`dotnet restore` before building another head with `--no-restore`. The
+`Found project reference without a matching metadata reference` warning is benign.
+
+`dotnet watch -f net10.0-desktop` also works on the samples as they ship (SDK
+10.0.401), but it loads the head once for every target it lists (11 projects,
+against 5 with the override), and that has failed every edit with
+`CS0518: Predefined type '…' is not defined or imported`: on a head listing two or
+three of the four targets, with the samples' earlier `Program.cs`. The override
+has worked in every case tried. Without either, `dotnet watch` asks which target
+to run (`--non-interactive` stops instead).
 
 ## Known limitations / notes
 
