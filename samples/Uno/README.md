@@ -160,9 +160,9 @@ dotnet build Reactor.Uno.slnx -f net10.0-ios
 
 Edits to a `Component.Render()` body re-render the running app and keep
 `UseState`. This has been tried on desktop, and through the Uno Dev Server on
-wasm and on the [iOS Simulator](#ios-simulator); Android goes through the same Dev
-Server but hasn't been run yet. How it works is in the port README's
-[Hot Reload](../../src/Reactor.Uno/README.md#hot-reload) section.
+wasm, an Android phone and the [iOS Simulator](#ios-simulator). How it works is
+in the port README's [Hot Reload](../../src/Reactor.Uno/README.md#hot-reload)
+section.
 
 **From the CLI, `dotnet watch` doesn't work on these samples as they are.** They
 target four frameworks, and `dotnet watch` against a multi-targeted head fails
