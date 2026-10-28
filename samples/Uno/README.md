@@ -90,19 +90,29 @@ install the app on it. Use `iossimulator-arm64` on Apple silicon and
 cd samples/Uno/ReactorUnoCounter
 dotnet build -f net10.0-ios -p:RuntimeIdentifier=iossimulator-arm64
 xcrun simctl install booted bin/Debug/net10.0-ios/iossimulator-arm64/ReactorUnoCounter.app
-xcrun simctl launch booted dev.reactor.unocounter
+SIMCTL_CHILD_DOTNET_MODIFIABLE_ASSEMBLIES=debug xcrun simctl launch --console booted dev.reactor.unocounter
 ```
+
+The `SIMCTL_CHILD_` prefix passes `DOTNET_MODIFIABLE_ASSEMBLIES=debug` to the
+app, which [Hot Reload](#ios-simulator) needs, and `--console` keeps the app's
+output in the terminal. Launching with `dotnet build -t:Run` instead failed:
+mlaunch stops with `error MT0002: Could not parse the environment variable
+'DOTNET_MODIFIABLE_ASSEMBLIES'`, because the Dev Server package passes that
+variable in a form the 26.0 iOS SDK pack doesn't read. Newer packs weren't tried.
 
 The other bundle IDs are `dev.reactor.unoshowcase` and `dev.reactor.gallery`
 (`ApplicationId` in each `.csproj`). A Debug build takes 30–40 seconds to show its
 first page on the simulator.
 
 > These steps were run on an Intel Mac with Xcode 26.2 (iPhone 17 Pro simulator,
-> iOS 26.3), for the counter and the gallery. That iOS workload wanted a newer
-> Xcode, so the run targeted the older SDK pack instead: `net10.0-ios` changed to
-> `net10.0-ios26.0` in the sample's and `src/Reactor.Uno`'s `.csproj` files (a
-> local edit, not committed), plus `-p:ValidateXcodeVersion=false` on the build.
-> If your Xcode matches your iOS workload, you don't need either.
+> iOS 26.3), for the counter and the gallery (the `SIMCTL_CHILD_` launch for the
+> counter only). That iOS workload wanted a newer Xcode, so the run targeted the
+> older SDK pack instead: every `net10.0-ios` changed to `net10.0-ios26.0` in the
+> sample's and `src/Reactor.Uno`'s `.csproj` files, including the `Condition` on
+> `src/Reactor.Uno`'s iOS runtime package (a local edit, not committed), plus
+> `-p:ValidateXcodeVersion=false` on the build. The `-f` value and the `bin/` path
+> in the commands change to match. If your Xcode matches your iOS workload, you
+> don't need any of this.
 
 > **Don't sideload the Debug APK.** A Debug Android build uses .NET's *Fast
 > Deployment*: the managed assemblies are **not inside the APK** — the deploy
@@ -149,10 +159,10 @@ dotnet build Reactor.Uno.slnx -f net10.0-ios
 ## Hot Reload
 
 Edits to a `Component.Render()` body re-render the running app and keep
-`UseState`. This has been tried on desktop and on wasm (through the Uno Dev
-Server); Android and iOS go through the same Dev Server but haven't been run yet. How it
-works is in the port README's [Hot Reload](../../src/Reactor.Uno/README.md#hot-reload)
-section.
+`UseState`. This has been tried on desktop, and through the Uno Dev Server on
+wasm and on the [iOS Simulator](#ios-simulator); Android goes through the same Dev
+Server but hasn't been run yet. How it works is in the port README's
+[Hot Reload](../../src/Reactor.Uno/README.md#hot-reload) section.
 
 **From the CLI, `dotnet watch` doesn't work on these samples as they are.** They
 target four frameworks, and `dotnet watch` against a multi-targeted head fails
@@ -165,3 +175,47 @@ target list down to `net10.0-desktop` from the command line:
 cd samples/Uno/ReactorUnoCounter
 dotnet watch --property:TargetFrameworks=net10.0-desktop
 ```
+
+### iOS Simulator
+
+On iOS the edits come through the Uno Dev Server, which an IDE normally starts.
+From the command line, start it **before** building: it writes its port into the
+sample's `.csproj.user`, and the build stamps that port onto the app. If the Dev
+Server restarts on a new port, rebuild. It has to be started from a folder holding
+a solution, and `samples/Uno` has none, so make a throwaway one-project solution
+there:
+
+```bash
+cd samples/Uno
+cat > HotReload.slnx <<'EOF'
+<Solution>
+  <Project Path="ReactorUnoCounter/ReactorUnoCounter.csproj" />
+</Solution>
+EOF
+dotnet dnx uno.devserver start
+```
+
+Then build, install and launch as in [Android / iOS](#android--ios), with the
+`SIMCTL_CHILD_` launch, and edit `ReactorUnoCounter/Program.cs`. When you're
+done, stop the Dev Server with `dotnet dnx uno.devserver stop` and delete
+`HotReload.slnx`.
+
+What was run, on the counter:
+
+- **Text edit in `Render()`:** applies (about 5 s for the first edit after a
+  launch, under 0.5 s after that), the count is kept, and the next tap adds 1.
+- **Hook added before the existing one:** that component's state resets, with no
+  error. **Added after it:** state is kept.
+- **Property with an initializer added to a record held in state:** the existing
+  value is kept, the new property reads `0` rather than its initializer, and
+  `with` keeps working.
+- **Edit that doesn't compile:** nothing applies and the app keeps running; the
+  fix applies.
+- **Rude edit** (for example deleting a type): refused with `ENC0033 … requires
+  restarting the application`, and the app keeps running unchanged. Unlike
+  `dotnet watch`, nothing offers to restart it: rebuild and relaunch.
+- **Release build:** carries no Dev Server client and runs normally.
+
+> Run on an Intel Mac with Xcode 26.2 (iPhone 17 Pro simulator, iOS 26.3), with
+> the `net10.0-ios26.0` workaround above, `uno.devserver` CLI 6.7.135 and Dev
+> Server host 7.0.0-dev.2347.
