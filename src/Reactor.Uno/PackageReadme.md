@@ -7,14 +7,14 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 ## Requirements
 
 - The .NET 10 SDK.
-- Uno.Sdk with the Skia renderer (`SkiaRenderer` in `UnoFeatures`). This version of the package is built against Uno.Sdk `7.0.0-dev.81`; use the same Uno.Sdk version in your app.
+- Uno.Sdk with the Skia renderer (`SkiaRenderer` in `UnoFeatures`). This version of the package is built against Uno.Sdk `7.0.0-dev.95`; use the same Uno.Sdk version in your app.
 
 ## A single-file app
 
 Save this as `Counter.cs` and run `dotnet run Counter.cs`:
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.81
+#:sdk Uno.Sdk@7.0.0-dev.95
 #:package Uno.Microsoft.UI.Reactor@[x.y.z]
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
