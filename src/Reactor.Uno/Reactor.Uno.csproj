@@ -194,36 +194,40 @@
 
   <!-- Skia host-builder providers (UseX11/UseWin32/UseMacOS/UseLinuxFrameBuffer,
        UseWebAssembly). These ship in the per-platform Skia runtime packages that
-       Uno.Sdk normally injects only into EXE heads; the Reactor.Uno library owns
-       the host bootstrap (ReactorApp.Run), so it references them directly and they
-       flow transitively to the consuming app head. $(UnoVersion) is supplied by
-       Uno.Sdk, so these track the SDK pinned in global.json automatically — never
-       hardcode a version here (it would drift and trip NU1605). -->
-  <!-- Desktop Skia host providers: UseX11/UseWin32/UseMacOS/UseLinuxFrameBuffer. -->
+       Uno.Sdk references in every EXE head (and in libraries only as build
+       assets); the Reactor.Uno library owns the host bootstrap (ReactorApp.Run),
+       so it needs them to compile. PrivateAssets="all" keeps them out of the
+       package's dependencies and off ProjectReferences, as Uno.Sdk does for
+       libraries: the app head brings them at its own $(UnoVersion), so they never
+       set a floor that raises the app's Uno (NU1605). $(UnoVersion) is supplied
+       by Uno.Sdk, so these track the SDK pinned in global.json automatically —
+       never hardcode a version here. -->
+  <!-- Desktop Skia host providers: UseX11/UseWin32/UseMacOS/UseLinuxFrameBuffer.
+       The head gets Uno.WinUI.Runtime through them. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
-    <PackageReference Include="Uno.WinUI.Runtime" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.X11" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.Win32" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.MacOS" Version="$(UnoVersion)" />
-    <PackageReference Include="Uno.WinUI.Runtime.Linux.FrameBuffer" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime" Version="$(UnoVersion)" PrivateAssets="all" />
+    <PackageReference Include="Uno.WinUI.Runtime.X11" Version="$(UnoVersion)" PrivateAssets="all" />
+    <PackageReference Include="Uno.WinUI.Runtime.Win32" Version="$(UnoVersion)" PrivateAssets="all" />
+    <PackageReference Include="Uno.WinUI.Runtime.MacOS" Version="$(UnoVersion)" PrivateAssets="all" />
+    <PackageReference Include="Uno.WinUI.Runtime.Linux.FrameBuffer" Version="$(UnoVersion)" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- WebAssembly Skia host provider: UseWebAssembly. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-browserwasm'">
-    <PackageReference Include="Uno.WinUI.Runtime.WebAssembly.Browser" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.WebAssembly.Browser" Version="$(UnoVersion)" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Android Skia runtime: UseAndroid. The head's NativeApplication.CreateHost
        returns ReactorApp.CreateHost<TRoot>(). -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
-    <PackageReference Include="Uno.WinUI.Runtime.Android" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.Android" Version="$(UnoVersion)" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Apple (UIKit) Skia runtime: UseAppleUIKit. Unlike Android, the Apple heads
        start from a real Main and take the same UnoPlatformHostBuilder shape as
        desktop, so ReactorApp.Run works there unchanged. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-ios'">
-    <PackageReference Include="Uno.WinUI.Runtime.AppleUIKit" Version="$(UnoVersion)" />
+    <PackageReference Include="Uno.WinUI.Runtime.AppleUIKit" Version="$(UnoVersion)" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Source-share drift guard.
