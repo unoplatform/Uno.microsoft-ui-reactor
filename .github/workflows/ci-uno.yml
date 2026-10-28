@@ -100,6 +100,11 @@ jobs:
       - name: Build desktop
         run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
 
+      # The single-file sample in its in-repo `#:project` form; it is not in the slnx. Its
+      # `#:package` form runs in the consume-file-based job.
+      - name: Build the file-based app
+        run: dotnet build samples/Uno/file-based/Counter.cs -bl:artifacts-logs/build-file-based.binlog
+
       # Runtime check on the build above (Win32 head): start the counter, click "+" through
       # its automation peer, and verify the re-render. The app exits 1 after 60s on its own;
       # the 2-minute wait only catches a hang before its timer starts.
