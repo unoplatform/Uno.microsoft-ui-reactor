@@ -3,7 +3,7 @@
     "Uno.Sdk": "7.0.0-dev.81"
   },
   "sdk": {
-    "version": "10.0.100",
+    "version": "10.0.400",
     "rollForward": "latestFeature",
     "allowPrerelease": false
   }
