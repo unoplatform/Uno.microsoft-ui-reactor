@@ -13,6 +13,10 @@ name: CI (Uno)
 # reports on every PR. There is no path filter for the same reason: a required check must always run,
 # and the Uno build must also run when Microsoft's changes are pulled in from `main`.
 #
+# "Run the file-based app from the package" is the consumer check: it runs the single-file sample
+# against the packed Uno.Microsoft.UI.Reactor, outside the checkout, so a package that builds but
+# can't be consumed fails the "Uno CI result" check and is never signed or published.
+#
 # "Build Reactor (Windows)" builds Microsoft's Reactor.slnx the way their CI does, to catch changes to
 # the shared source (src/Reactor) that break the Windows side. It is not part of "Uno CI result".
 #
@@ -95,6 +99,11 @@ jobs:
       # the Android and iOS heads build in the build-mobile job.
       - name: Build desktop
         run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
+
+      # The single-file sample in its in-repo `#:project` form; it is not in the slnx. Its
+      # `#:package` form runs in the consume-file-based job.
+      - name: Build the file-based app
+        run: dotnet build samples/Uno/file-based/Counter.cs -bl:artifacts-logs/build-file-based.binlog
 
       # Runtime check on the build above (Win32 head): start the counter, click "+" through
       # its automation peer, and verify the re-render. The app exits 1 after 60s on its own;
@@ -195,6 +204,8 @@ jobs:
     if: needs.detect.outputs.port == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.pack.outputs.version }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -218,8 +229,10 @@ jobs:
         run: dotnet workload install wasm-tools android ios
 
       - name: Pack
+        id: pack
         run: |
           $packageVersion = "${{ steps.nbgv.outputs.SemVer2 }}".ToLower()
+          echo "version=$packageVersion" >> $env:GITHUB_OUTPUT
           dotnet pack src/Reactor.Uno/Reactor.Uno.csproj -c Release -p:PackageVersion=$packageVersion -p:Version=${{ steps.nbgv.outputs.SimpleVersion }} -o artifacts -bl:artifacts-logs/pack.binlog
 
       # The assembly is deliberately named "Reactor" like Microsoft's, so without an explicit
@@ -252,10 +265,52 @@ jobs:
           path: artifacts-logs
           if-no-files-found: ignore
 
+  # The single-file app the way a consumer runs it (smoke-package.ps1): Counter.cs with its
+  # `#:project` line rewritten to `#:package Uno.Microsoft.UI.Reactor@[<version>]`, restored from
+  # the package above into a private NUGET_PACKAGES, in a folder outside the checkout, then run
+  # on desktop with a click through UI Automation.
+  consume-file-based:
+    name: Run the file-based app from the package (desktop)
+    needs: pack
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: samples/Uno/file-based
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: NuGet
+          path: ${{ runner.temp }}/feed
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Run Counter.cs from the package
+        run: >-
+          ./samples/Uno/file-based/smoke-package.ps1
+          -Feed "${{ runner.temp }}/feed"
+          -Version "${{ needs.pack.outputs.version }}"
+          -WorkDir "${{ runner.temp }}/consumer"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-consume-file-based
+          path: |
+            ${{ runner.temp }}/consumer/*.binlog
+            ${{ runner.temp }}/consumer/*.log
+          if-no-files-found: ignore
+
   # The single required check for the Uno port. Skipped jobs (no port on the branch yet) pass.
   result:
     name: Uno CI result
-    needs: [detect, build-uno, build-mobile, pack]
+    needs: [detect, build-uno, build-mobile, pack, consume-file-based]
     if: always()
     runs-on: ubuntu-latest
     steps:
