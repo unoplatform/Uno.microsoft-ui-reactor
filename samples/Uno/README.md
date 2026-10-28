@@ -63,6 +63,12 @@ For WebAssembly, build with `-f net10.0-browserwasm` and run
 browser console. It only looks for the browser in the Windows install folders;
 elsewhere, pass `-Browser <path>`.
 
+`file-based/smoke-package.ps1 -Feed <folder> -Version <version>` is CI's check of the
+single-file app against the **package**: it copies `Counter.cs` out of the repo, swaps its
+`#:project` line for `#:package Uno.Microsoft.UI.Reactor@[<version>]`, restores that
+version from the `-Feed` folder (a `dotnet pack` output) into a private package cache, and
+clicks "+" over UI Automation (Windows, PowerShell 7).
+
 ### Android / iOS
 
 The same projects, different heads. Android has no console entry point, so each
