@@ -21,7 +21,9 @@ outside this repo, replace that `ProjectReference` with a `PackageReference` to
 
 ## Prerequisites
 
-- **.NET 10 SDK** (`10.0.100`+ — see [`global.json`](global.json))
+- **.NET 10 SDK** (`10.0.400`+ — see [`global.json`](global.json)). Reactor's
+  source generators build against Roslyn 5.9, which older SDKs can't load: the
+  compiler drops them (`CS9057`) and the build fails with a wall of `CS0759`.
 - **[uno-check](https://platform.uno/docs/articles/external/uno.check/doc/using-uno-check.html)**
   for the rest: the `wasm-tools`, `android` and `ios` workloads, the Android SDK
   and a JDK. Add `--target desktop`, `wasm`, `android` or `ios` (repeatable) to
