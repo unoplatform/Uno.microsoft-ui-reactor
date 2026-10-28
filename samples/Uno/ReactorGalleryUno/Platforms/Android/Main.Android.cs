@@ -10,7 +10,7 @@ namespace ReactorGalleryUno.Droid;
     Label = "@string/ApplicationName",
     LargeHeap = true,
     HardwareAccelerated = true,
-    Theme = "@style/AppTheme"
+    Theme = "@style/Theme.App.Starting"
 )]
 public class Application : Uno.UI.Runtime.Android.NativeApplication
 {

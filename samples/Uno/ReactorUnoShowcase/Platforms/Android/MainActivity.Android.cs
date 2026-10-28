@@ -1,4 +1,5 @@
 using Android.App;
+using Android.OS;
 using Android.Views;
 
 namespace ReactorUnoShowcase.Droid;
@@ -10,4 +11,10 @@ namespace ReactorUnoShowcase.Droid;
 )]
 public class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
 {
+    protected override void OnCreate(Bundle? savedInstanceState)
+    {
+        global::AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
+
+        base.OnCreate(savedInstanceState);
+    }
 }
