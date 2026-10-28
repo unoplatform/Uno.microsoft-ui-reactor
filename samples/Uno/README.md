@@ -149,8 +149,8 @@ dotnet build Reactor.Uno.slnx -f net10.0-ios
 ## Hot Reload
 
 Edits to a `Component.Render()` body re-render the running app and keep
-`UseState`. This has only been tried on desktop; on wasm, Android and iOS the Uno
-Dev Server should drive it the same way, but that hasn't been run yet. How it
+`UseState`. This has been tried on desktop and on wasm (through the Uno Dev
+Server); Android and iOS go through the same Dev Server but haven't been run yet. How it
 works is in the port README's [Hot Reload](../../src/Reactor.Uno/README.md#hot-reload)
 section.
 

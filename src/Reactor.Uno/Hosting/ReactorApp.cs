@@ -28,7 +28,9 @@ internal sealed record ReactorAppOptions(
     string WindowTitle = "Reactor App",
     double? WindowWidth = null,
     double? WindowHeight = null,
-    bool FullScreen = false);
+    bool FullScreen = false,
+    // A type from the app's own assembly, for the Dev Server client (DevServerConnection).
+    Type? AppType = null);
 
 /// <summary>
 /// Application entry point for Reactor apps running on Uno Platform Skia targets
@@ -279,6 +281,7 @@ public static partial class ReactorApp
     {
         Options = new ReactorAppOptions(
             RootFactory: static () => new TRoot(),
+            AppType: typeof(TRoot),
             Configure: configure,
             WindowTitle: title,
             WindowWidth: width,
@@ -302,6 +305,7 @@ public static partial class ReactorApp
     {
         Options = new ReactorAppOptions(
             RootRenderFunc: rootRender,
+            AppType: rootRender.Method.DeclaringType,
             Configure: configure,
             WindowTitle: title,
             WindowWidth: width,
@@ -326,6 +330,7 @@ public static partial class ReactorApp
     {
         Options = new ReactorAppOptions(
             RootFactory: static () => new TRoot(),
+            AppType: typeof(TRoot),
             Configure: configure,
             WindowTitle: title,
             WindowWidth: width,
@@ -345,6 +350,7 @@ public static partial class ReactorApp
     {
         Options = new ReactorAppOptions(
             RootRenderFunc: rootRender,
+            AppType: rootRender.Method.DeclaringType,
             Configure: configure,
             WindowTitle: title,
             WindowWidth: width,
@@ -384,6 +390,7 @@ public static partial class ReactorApp
     {
         Options = new ReactorAppOptions(
             RootFactory: static () => new TRoot(),
+            AppType: typeof(TRoot),
             Configure: configure,
             WindowTitle: title);
         return UnoBootstrap.BuildHost();
@@ -399,6 +406,7 @@ public static partial class ReactorApp
     {
         Options = new ReactorAppOptions(
             RootRenderFunc: rootRender,
+            AppType: rootRender.Method.DeclaringType,
             Configure: configure,
             WindowTitle: title);
         return UnoBootstrap.BuildHost();
