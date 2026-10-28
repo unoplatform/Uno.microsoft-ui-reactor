@@ -8,6 +8,7 @@ namespace ReactorGalleryUno.Droid;
 
 [global::Android.App.ApplicationAttribute(
     Label = "@string/ApplicationName",
+    Icon = "@mipmap/icon",
     LargeHeap = true,
     HardwareAccelerated = true,
     Theme = "@style/Theme.App.Starting"
