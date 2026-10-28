@@ -8,9 +8,10 @@ namespace ReactorGalleryUno.Droid;
 
 [global::Android.App.ApplicationAttribute(
     Label = "@string/ApplicationName",
+    Icon = "@mipmap/icon",
     LargeHeap = true,
     HardwareAccelerated = true,
-    Theme = "@style/AppTheme"
+    Theme = "@style/Theme.App.Starting"
 )]
 public class Application : Uno.UI.Runtime.Android.NativeApplication
 {
