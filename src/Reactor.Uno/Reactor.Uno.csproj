@@ -31,10 +31,6 @@
          to errors in the Uno port. -->
     <IsAotCompatible>false</IsAotCompatible>
     <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
-
-    <UnoFeatures>
-      SkiaRenderer;
-    </UnoFeatures>
   </PropertyGroup>
 
   <!-- NuGet metadata. Set here because Directory.Build.props stops the walk-up to
