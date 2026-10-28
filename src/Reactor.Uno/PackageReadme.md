@@ -61,9 +61,6 @@ Reference the package from a single Uno project that uses the Skia renderer:
     <OutputType>Exe</OutputType>
     <UnoSingleProject>true</UnoSingleProject>
     <UnoFeatures>SkiaRenderer</UnoFeatures>
-    <!-- A Reactor app has no App.xaml, which Uno's iOS Hot Restart helper
-         generator needs; without this, the iOS build fails with Uno0005. -->
-    <UnoDisableHotRestartHelperGeneration>true</UnoDisableHotRestartHelperGeneration>
   </PropertyGroup>
 
   <ItemGroup>

@@ -12,12 +12,6 @@
 
     <Nullable>enable</Nullable>
 
-    <!-- Reactor apps have NO XAML at all — Reactor owns the Application in code —
-         so there is no ApplicationDefinition (App.xaml) for Uno's iOS Hot Restart
-         helper generator to read, and it fails the build with Uno0005. Opt out;
-         this only disables VS's iOS *Hot Restart* deploy helper, not Hot Reload. -->
-    <UnoDisableHotRestartHelperGeneration>true</UnoDisableHotRestartHelperGeneration>
-
     <!-- NOTE: there is no "HotReload" UnoFeature. The Uno dev-server client
          (Uno.WinUI.DevServer / Uno.UI.RemoteControl) is referenced automatically
          for Debug builds, and the Dev Server itself is started by the IDE. -->

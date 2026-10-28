@@ -131,11 +131,6 @@ first page on the simulator.
 > with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
 > sideload one.
 
-> Reactor apps contain **no XAML**, so there is no `ApplicationDefinition` for
-> Uno's iOS Hot Restart helper generator to read and it fails with `Uno0005`. The
-> samples set `<UnoDisableHotRestartHelperGeneration>true</...>`, which disables
-> only VS's iOS *Hot Restart* deploy helper — not Hot Reload.
-
 ### file-based/Counter.cs
 
 A single-file app — no project, no `.csproj`. Two things differ from the projects
