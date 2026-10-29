@@ -75,6 +75,8 @@ Add `Reactor` to `UnoFeatures` in a single Uno project that uses the Skia render
 
 Pin Uno.Sdk `7.0.0-dev.104` or later in its `global.json`. The feature first shipped in `7.0.0-dev.97`; an Uno.Sdk older than that ignores it without a warning, and the build then fails with `CS0234` on `Microsoft.UI.Reactor`.
 
+Remove the Windows target framework (`net10.0-windows10.0.x`) from the project: with `Reactor` in `UnoFeatures`, that target fails with `UNOB0031`, since this package doesn't target the Windows App SDK.
+
 Desktop, WebAssembly and iOS start the app with `ReactorApp.Run<TRoot>(...)`, as above. Android has no console entry point, so it starts from an `Application` in `Platforms/Android` whose `CreateHost` returns `ReactorApp.CreateHost<TRoot>()`. The `unoapp-reactor` template generates both.
 
 ## Another Reactor version
