@@ -12,9 +12,6 @@
 
     <Nullable>enable</Nullable>
 
-    <!-- Android starts from Program.cs too: Reactor adds the Application + Activity. -->
-    <ReactorAndroidEntry>true</ReactorAndroidEntry>
-
     <!-- NOTE: there is no "HotReload" UnoFeature. The Uno dev-server client
          (Uno.WinUI.DevServer / Uno.UI.RemoteControl) is referenced automatically
          for Debug builds, and the Dev Server itself is started by the IDE. -->
