@@ -69,10 +69,12 @@ browser console. It only looks for the browser in the Windows install folders;
 elsewhere, pass `-Browser <path>`.
 
 `file-based/smoke-package.ps1 -Feed <folder> -Version <version>` is CI's check of the
-single-file app against the **package**: it copies `Counter.cs` out of the repo, swaps its
-`#:project` line for `#:package Uno.Microsoft.UI.Reactor@[<version>]`, restores that
-version from the `-Feed` folder (a `dotnet pack` output) into a private package cache, and
-clicks "+" over UI Automation (Windows, PowerShell 7).
+single-file app against the **package**, in the form the
+[package readme](../../src/Reactor.Uno/PackageReadme.md#a-single-file-app) shows: it copies
+`Counter.cs` out of the repo, swaps its `#:project` line for the `Reactor` UnoFeature on the
+readme's Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that version from
+the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
+UI Automation (Windows, PowerShell 7).
 
 ### Android / iOS
 
