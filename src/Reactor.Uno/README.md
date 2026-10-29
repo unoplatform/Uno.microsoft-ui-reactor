@@ -39,6 +39,30 @@ clicks** in the browser via WASM and on Android (API 36 emulator). On the iOS
 Simulator (iOS 26.3) the counter and gallery samples launch and render their
 first page, and the counter responds to taps.
 
+## Quick start — a new app from the template
+
+Uno's `unoapp-reactor` template creates a single Uno project for desktop,
+WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature:
+
+```bash
+dotnet new install Uno.Templates@7.0.0-dev.104
+dotnet new unoapp-reactor -n MyApp
+cd MyApp
+dotnet run -f net10.0-desktop
+```
+
+`7.0.0-dev.104` is the first `Uno.Templates` with the template; later ones work
+too. The generated `.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
+and no `PackageReference`: the Uno.Sdk pinned in its `global.json` picks the
+[`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor)
+version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
+cuts the target list.
+
+To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
+and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with. The
+feature first shipped in Uno.Sdk `7.0.0-dev.97`; an older Uno.Sdk ignores it
+silently, and the build fails with `CS0234` on `Microsoft.UI.Reactor`.
+
 ## Quick start — a file-based, single-file Reactor app
 
 This mirrors the [xaml.dev "file-based WinUI apps with Microsoft.UI.Reactor"](https://xaml.dev/post/file-based-winui-apps-with-microsoft-ui-reactor)
@@ -87,6 +111,11 @@ Run it:
 cd samples/Uno/file-based
 dotnet run Counter.cs
 ```
+
+The `#:project` line builds the port from this repo. Outside it, delete that line,
+pin `#:sdk Uno.Sdk@7.0.0-dev.104` or later, and add `Reactor` to the `UnoFeatures`
+line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
+[package readme](PackageReadme.md#a-single-file-app) shows.
 
 > **Versus the WinUI version.** The WinUI file-based app uses
 > `#:property TargetFramework=net10.0-windows10.0.22621.0` +
