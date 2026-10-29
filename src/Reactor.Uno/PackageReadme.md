@@ -29,7 +29,7 @@ The app targets desktop, WebAssembly, Android and iOS. Pick fewer with `-platfor
 Save this as `Counter.cs` and run `dotnet run Counter.cs`:
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.104
+#:sdk Uno.Sdk@7.0.0-dev.113
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true

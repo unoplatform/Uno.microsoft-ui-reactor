@@ -70,7 +70,7 @@ post, but cross-platform. The whole app is one `.cs` file
 ([`samples/Uno/file-based/Counter.cs`](../../samples/Uno/file-based/Counter.cs)):
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.95
+#:sdk Uno.Sdk@7.0.0-dev.113
 #:project ../../../src/Reactor.Uno/Reactor.Uno.csproj
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
@@ -175,7 +175,7 @@ src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
     ReactorHost.cs          # the render loop (reconcile → Window.Content → effects)
     Windowing.cs            # minimal ReactorWindow + windowing types for the shared hooks
-  global.json               # pins Uno.Sdk 7.0.0-dev.95
+  global.json               # pins Uno.Sdk 7.0.0-dev.113
   nuget.config              # nuget.org (self-contained restore)
   Directory.Build.props     # stops inheritance of the repo-root Windows build infra
   Directory.Packages.props  # CPM off for this project
@@ -457,7 +457,7 @@ to run (`--non-interactive` stops instead).
 
 - **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
   the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release —
-  `Uno.Sdk 7.0.0-dev.95`, set in `global.json` (repo root, `src/Reactor.Uno/`,
+  `Uno.Sdk 7.0.0-dev.113`, set in `global.json` (repo root, `src/Reactor.Uno/`,
   `samples/Uno/`, and the file-based `Counter.cs` header). Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
