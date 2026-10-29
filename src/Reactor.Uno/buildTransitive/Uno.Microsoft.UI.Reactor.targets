@@ -22,6 +22,8 @@
     entry is on, _ReactorCheckAndroidEntryConflict turns that leftover into an
     error that says so, instead of CS5001 or two [Application] types.
   -->
+  <Import Project="$(MSBuildThisFileDirectory)Uno.Microsoft.UI.Reactor.DotnetHostPath.targets" />
+
   <PropertyGroup>
     <ReactorAndroidEntry Condition="'$(ReactorAndroidEntry)' == ''">true</ReactorAndroidEntry>
     <_ReactorAndroidEntry Condition="'$(AndroidApplication)' == 'true' and '$(ReactorAndroidEntry)' == 'true'">true</_ReactorAndroidEntry>

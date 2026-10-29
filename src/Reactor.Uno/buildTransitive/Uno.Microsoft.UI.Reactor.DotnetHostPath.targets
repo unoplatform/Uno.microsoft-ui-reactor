@@ -1,0 +1,21 @@
+<Project>
+  <!--
+    Temporary workaround for https://github.com/dotnet/sdk/pull/55581 (in the .NET 11 SDK,
+    not in 10.0.4xx). `dotnet run` builds DeployToDevice and ComputeRunArguments in its
+    own process without setting DOTNET_HOST_PATH. DeployToDevice builds the app's
+    ProjectReferences again, and a task they run in a .NET task host (Uno's
+    EmbeddedResourceInjectorTask, in every project that references Uno.WinUI) then
+    fails with MSB4221 "DOTNET_HOST_PATH is not set". So `dotnet run -f net10.0-android` failed for an app
+    with a ProjectReference to an Uno library, such as the in-repo samples.
+
+    MSBuild reads DOTNET_HOST_PATH for a task host from the project's properties, which
+    start from the environment, so setting the property here is enough. A build that
+    has the variable keeps it. Imported by Uno.Microsoft.UI.Reactor.targets and by
+    Reactor.Uno.csproj, the library the samples reference. Remove once the SDKs we
+    support carry the fix.
+  -->
+  <PropertyGroup Condition="'$(DOTNET_HOST_PATH)' == '' and '$(NetCoreRoot)' != ''">
+    <DOTNET_HOST_PATH Condition="$([MSBuild]::IsOSPlatform('Windows'))">$([MSBuild]::NormalizePath('$(NetCoreRoot)', 'dotnet.exe'))</DOTNET_HOST_PATH>
+    <DOTNET_HOST_PATH Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$([MSBuild]::NormalizePath('$(NetCoreRoot)', 'dotnet'))</DOTNET_HOST_PATH>
+  </PropertyGroup>
+</Project>

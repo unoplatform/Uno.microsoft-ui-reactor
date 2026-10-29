@@ -73,6 +73,10 @@
     <None Include="buildTransitive\**" Pack="true" PackagePath="buildTransitive" />
   </ItemGroup>
 
+  <!-- Except the DOTNET_HOST_PATH workaround, which this library needs too: `dotnet run`
+       rebuilds it when it deploys a sample to Android. -->
+  <Import Project="buildTransitive\Uno.Microsoft.UI.Reactor.DotnetHostPath.targets" />
+
   <!-- Uno.Sdk globs **\*.png as Content after this file is read, so a Content Remove
        here is too early; without the exclude the icon is also packed into content/,
        contentFiles/ and every lib/ folder. It belongs at the package root only. -->
