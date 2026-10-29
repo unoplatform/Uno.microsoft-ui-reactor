@@ -33,29 +33,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$packageId = 'Uno.Microsoft.UI.Reactor'
+Import-Module (Join-Path $PSScriptRoot '../package-consumer.psm1') -Force
 
-$Feed = (Resolve-Path $Feed).Path
-if (-not (Test-Path (Join-Path $Feed "$packageId.$Version.nupkg"))) {
-    throw "$packageId.$Version.nupkg is not in $Feed"
-}
-
-New-Item -ItemType Directory -Force $WorkDir | Out-Null
-$WorkDir = (Resolve-Path $WorkDir).Path
-for ($dir = Split-Path $WorkDir -Parent; $dir; $dir = Split-Path $dir -Parent) {
-    $found = @('global.json', 'nuget.config', 'NuGet.Config', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props') |
-        ForEach-Object { Join-Path $dir $_ } | Where-Object { Test-Path $_ }
-    if ($found) { throw "-WorkDir must not sit under a folder with build settings; found $($found -join ', ')" }
-}
+$consumer = Initialize-ConsumerFolder $Feed $Version $WorkDir
+$Feed = $consumer.Feed
+$WorkDir = $consumer.WorkDir
 
 # The package readme's form of the sample.
-function Get-OneMatch([string]$text, [string]$pattern, [string]$what) {
-    $found = [regex]::Matches($text, $pattern)
-    if ($found.Count -ne 1) { throw "Expected one $what, found $($found.Count)" }
-    $found[0]
-}
-$readme = Get-Content (Join-Path $PSScriptRoot '../../../src/Reactor.Uno/PackageReadme.md') -Raw
-$sdkLine = (Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)' '#:sdk Uno.Sdk line in PackageReadme.md').Value
+$sdkLine = "#:sdk Uno.Sdk@$(Get-ReadmeUnoSdkVersion)"
 $source = Get-Content (Join-Path $PSScriptRoot 'Counter.cs') -Raw
 $null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
 $null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)' '#:sdk Uno.Sdk line in Counter.cs'
@@ -69,29 +54,6 @@ Set-Content $app $source -NoNewline
 Write-Host "Counter.cs header:"
 Get-Content $app | Where-Object { $_ -like '#:*' } | ForEach-Object { Write-Host "  $_" }
 
-# The package comes from -Feed only: nuget.org has dev builds under the same ID.
-Set-Content (Join-Path $WorkDir 'nuget.config') @"
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="local" value="$Feed" />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
-  </packageSources>
-  <packageSourceMapping>
-    <packageSource key="local">
-      <package pattern="$packageId" />
-    </packageSource>
-    <packageSource key="nuget.org">
-      <package pattern="*" />
-    </packageSource>
-  </packageSourceMapping>
-</configuration>
-"@
-
-$env:NUGET_PACKAGES = Join-Path $WorkDir 'packages'
-$env:NUGET_HTTP_CACHE_PATH = Join-Path $WorkDir 'http-cache'
-
 Push-Location $WorkDir
 try {
     dotnet --version
@@ -103,11 +65,7 @@ finally {
     Pop-Location
 }
 
-$restored = Join-Path $env:NUGET_PACKAGES "$($packageId.ToLowerInvariant())/$($Version.ToLowerInvariant())"
-if (-not (Test-Path $restored)) { throw "$packageId $Version was not restored into $env:NUGET_PACKAGES" }
-$restoredFrom = (Get-Content (Join-Path $restored '.nupkg.metadata') -Raw | ConvertFrom-Json).source
-if ($restoredFrom.TrimEnd('\', '/') -ne $Feed.TrimEnd('\', '/')) { throw "$packageId $Version came from $restoredFrom, not $Feed" }
-Write-Host "Restored $packageId $Version from $restoredFrom"
+Assert-RestoredFromFeed $Feed $Version
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $automation = [System.Windows.Automation.AutomationElement]
