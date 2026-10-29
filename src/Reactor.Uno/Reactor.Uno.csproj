@@ -63,6 +63,16 @@
     <None Include="PackageReadme.md" Pack="true" PackagePath="README.md" Visible="false" />
   </ItemGroup>
 
+  <!-- buildTransitive/ is for the consuming app (the Android entry point,
+       ReactorAndroidEntry), not this library: packed, never compiled here. The
+       in-repo samples import the same .targets from samples/Uno/Directory.Build.targets,
+       since a ProjectReference doesn't get a package's buildTransitive files. -->
+  <ItemGroup>
+    <Compile Remove="buildTransitive\**" />
+    <None Remove="buildTransitive\**" />
+    <None Include="buildTransitive\**" Pack="true" PackagePath="buildTransitive" />
+  </ItemGroup>
+
   <!-- Uno.Sdk globs **\*.png as Content after this file is read, so a Content Remove
        here is too early; without the exclude the icon is also packed into content/,
        contentFiles/ and every lib/ folder. It belongs at the package root only. -->

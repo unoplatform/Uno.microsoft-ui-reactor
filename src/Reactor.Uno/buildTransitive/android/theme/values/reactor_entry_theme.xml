@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- The theme of the Application that ReactorAndroidEntry adds; the same as the
+     unoapp template's AppTheme. -->
+<resources>
+	<style name="Reactor.Theme" parent="Theme.MaterialComponents.Light">
+		<item name="windowActionBar">false</item>
+		<item name="android:windowActionBar">false</item>
+		<item name="windowNoTitle">true</item>
+		<item name="android:windowNoTitle">true</item>
+	</style>
+</resources>

@@ -34,6 +34,10 @@ internal static class UnoBootstrap
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
+#elif __ANDROID__
+        // Android never calls Main on its own. When it runs, ReactorAndroidApplication
+        // invoked it to read the options ReactorApp.Run just recorded, and builds and
+        // runs the host itself once Main returns.
 #else
         BuildHost().Run();
 #endif
@@ -63,7 +67,8 @@ internal static class UnoBootstrap
         builder = builder.UseAppleUIKit();
 #elif __ANDROID__
         // Android has no console entry point: the OS instantiates the head's
-        // NativeApplication, whose CreateHost override calls ReactorApp.CreateHost,
+        // NativeApplication, whose CreateHost override calls ReactorApp.CreateHost
+        // (or, with ReactorAndroidEntry, runs Main through ReactorAndroidApplication),
         // and Uno runs the host it returns.
         builder = builder.UseAndroid();
 #else
