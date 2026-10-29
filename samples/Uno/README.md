@@ -89,11 +89,10 @@ workloads.
 
 ### Android / iOS
 
-The same projects, different heads. Android has no console entry point, so each
-sample starts there from `Platforms/Android/Main.Android.cs` (for example
-[the counter's](ReactorUnoCounter/Platforms/Android/Main.Android.cs)); the port
-README's [Status](../../src/Reactor.Uno/README.md#status) explains each target's
-entry point.
+The same projects, different heads, and the same `Program.cs`: Android never calls
+`Main` on its own, so Reactor adds the Android Application and Activity that run it
+(the port README's [Status](../../src/Reactor.Uno/README.md#status) explains how).
+`Platforms/Android` keeps only the manifest and `environment.conf`.
 
 ```bash
 cd samples/Uno/ReactorUnoCounter

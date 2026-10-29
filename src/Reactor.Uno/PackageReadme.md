@@ -77,7 +77,7 @@ Pin Uno.Sdk `7.0.0-dev.104` or later in its `global.json`. The feature first shi
 
 Remove the Windows target framework (`net10.0-windows10.0.x`) from the project: with `Reactor` in `UnoFeatures`, that target fails with `UNOB0031`, since this package doesn't target the Windows App SDK.
 
-Desktop, WebAssembly and iOS start the app with `ReactorApp.Run<TRoot>(...)`, as above. Android has no console entry point, so it starts from an `Application` in `Platforms/Android` whose `CreateHost` returns `ReactorApp.CreateHost<TRoot>()`. The `unoapp-reactor` template generates both.
+Every target starts the app with `ReactorApp.Run<TRoot>(...)`, as above, Android included: Android never calls `Main` on its own, so the package adds the Android Application and launcher Activity that run it, with the app's icon and splash screen. An app that keeps its own `NativeApplication` sets `<ReactorAndroidEntry>false</ReactorAndroidEntry>` and returns `ReactorApp.CreateHost<TRoot>(...)` from its `CreateHost`.
 
 ## Another Reactor version
 
