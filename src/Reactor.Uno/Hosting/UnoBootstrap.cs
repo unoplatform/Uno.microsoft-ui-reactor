@@ -67,8 +67,8 @@ internal static class UnoBootstrap
         builder = builder.UseAppleUIKit();
 #elif __ANDROID__
         // Android has no console entry point: the OS instantiates the head's
-        // NativeApplication, whose CreateHost override calls ReactorApp.CreateHost
-        // (or, with ReactorAndroidEntry, runs Main through ReactorAndroidApplication),
+        // Application — ReactorAndroidApplication, which runs Main (ReactorAndroidEntry),
+        // or the app's own NativeApplication, whose CreateHost calls ReactorApp.CreateHost —
         // and Uno runs the host it returns.
         builder = builder.UseAndroid();
 #else

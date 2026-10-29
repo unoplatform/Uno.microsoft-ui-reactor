@@ -8,8 +8,8 @@
 // Program.cs for every target, with no `#if __ANDROID__`.
 //
 // Uno.Microsoft.UI.Reactor.targets compiles the app as an Exe (so it has an entry
-// point) and injects the [Application] + [Activity] subclasses when
-// ReactorAndroidEntry is true.
+// point) and injects the [Application] + [Activity] subclasses unless
+// ReactorAndroidEntry is false.
 
 #if __ANDROID__
 using System;
@@ -24,10 +24,10 @@ namespace Microsoft.UI.Reactor.Hosting;
 /// <see cref="ReactorApp.Run{TRoot}"/> works on Android like on the other targets.
 /// </summary>
 /// <remarks>
-/// Not used directly: set <c>ReactorAndroidEntry</c> to <c>true</c> in the project and
-/// the build adds the <c>[Application]</c> and launcher <c>[Activity]</c> for you. An app
-/// that brings its own <c>NativeApplication</c> keeps calling
-/// <see cref="ReactorApp.CreateHost{TRoot}"/> from it instead.
+/// Not used directly: the build adds the <c>[Application]</c> and launcher
+/// <c>[Activity]</c> for you (<c>ReactorAndroidEntry</c>, on by default). An app that
+/// sets <c>ReactorAndroidEntry</c> to <c>false</c> brings its own <c>NativeApplication</c>
+/// and calls <see cref="ReactorApp.CreateHost{TRoot}"/> from it instead.
 /// </remarks>
 public abstract class ReactorAndroidApplication : Uno.UI.Runtime.Android.NativeApplication
 {

@@ -223,8 +223,8 @@
     <PackageReference Include="Uno.WinUI.Runtime.WebAssembly.Browser" Version="$(UnoVersion)" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Android Skia runtime: UseAndroid. The head's NativeApplication.CreateHost
-       returns ReactorApp.CreateHost<TRoot>(). -->
+  <!-- Android Skia runtime: UseAndroid. Also NativeApplication/ApplicationActivity,
+       which Hosting/ReactorAndroidApplication.cs and the buildTransitive entry derive from. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
     <PackageReference Include="Uno.WinUI.Runtime.Android" Version="$(UnoVersion)" PrivateAssets="all" />
   </ItemGroup>

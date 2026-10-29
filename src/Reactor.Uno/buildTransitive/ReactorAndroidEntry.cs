@@ -1,5 +1,5 @@
-// Added to the app by Uno.Microsoft.UI.Reactor.targets when ReactorAndroidEntry is
-// true. Android starts from these two classes instead of Main; the Application runs
+// Added to the app by Uno.Microsoft.UI.Reactor.targets unless ReactorAndroidEntry
+// is false. Android starts from these two classes instead of Main; the Application runs
 // Main for it (see Microsoft.UI.Reactor.Hosting.ReactorAndroidApplication).
 //
 // ReactorAndroidEntryConfig is generated next to it (obj/ReactorAndroidEntry.g.cs)
