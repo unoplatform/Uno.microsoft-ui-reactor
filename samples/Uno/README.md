@@ -16,8 +16,11 @@ All three app samples are **single Uno projects targeting all four heads** — t
 [Status](../../src/Reactor.Uno/README.md#status) in the port README).
 
 The samples reference the port as a project (`src/Reactor.Uno`). To use one
-outside this repo, replace that `ProjectReference` with a `PackageReference` to
-[`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor).
+outside this repo, drop that `ProjectReference`, add `Reactor` to `UnoFeatures`,
+and pin Uno.Sdk `7.0.0-dev.104` or later in `global.json`: the Uno.Sdk then brings
+in [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor).
+For a new app, start from `dotnet new unoapp-reactor` instead (see the port
+README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-from-the-template)).
 
 ## Prerequisites
 
