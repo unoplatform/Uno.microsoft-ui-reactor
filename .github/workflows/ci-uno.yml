@@ -13,15 +13,17 @@ name: CI (Uno)
 # reports on every PR. There is no path filter for the same reason: a required check must always run,
 # and the Uno build must also run when Microsoft's changes are pulled in from `main`.
 #
-# "Run the file-based app from the package" is the consumer check: it runs the single-file sample
-# against the packed Uno.Microsoft.UI.Reactor, outside the checkout, so a package that builds but
-# can't be consumed fails the "Uno CI result" check and is never signed or published.
+# "Consume the package" is the consumer check (ci-uno-consume.yml): it runs the single-file sample
+# on desktop and builds the counter project for wasm, android and ios against the packed
+# Uno.Microsoft.UI.Reactor, outside the checkout, so a package that builds but can't be consumed
+# fails the "Uno CI result" check and is never signed or published.
 #
 # "Build Reactor (Windows)" builds Microsoft's Reactor.slnx the way their CI does, to catch changes to
 # the shared source (src/Reactor) that break the Windows side. It is not part of "Uno CI result".
 #
 # Microsoft's own workflows (ci.yml, release.yml, ...) stay in the tree for upstream syncs, but are
-# disabled on this fork.
+# disabled on this fork: upstream-sync.yml switches off every workflow not in its KEEP list, so a
+# new workflow file of ours goes in that list (src/Reactor.Uno/README.md, "Our workflows on this fork").
 
 on:
   push:
@@ -101,7 +103,7 @@ jobs:
         run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
 
       # The single-file sample in its in-repo `#:project` form; it is not in the slnx. Its
-      # package form runs in the consume-file-based job.
+      # package form runs in the consume job.
       - name: Build the file-based app
         run: dotnet build samples/Uno/file-based/Counter.cs -bl:artifacts-logs/build-file-based.binlog
 
@@ -127,7 +129,7 @@ jobs:
       # Runtime check on the build above: serve the counter, open it with ?smoke in headless
       # Chrome, and read the result the app logs to the browser console.
       - name: Smoke test WebAssembly
-        run: ./samples/Uno/ReactorUnoCounter/smoke-wasm.ps1
+        run: ./.github/scripts/uno/smoke-wasm.ps1
 
       - name: Upload logs
         if: always()
@@ -265,56 +267,20 @@ jobs:
           path: artifacts-logs
           if-no-files-found: ignore
 
-  # The single-file app the way the package readme has a consumer run it (smoke-package.ps1):
-  # Counter.cs with its `#:project` line swapped for the `Reactor` UnoFeature, the readme's
-  # Uno.Sdk, and `UnoReactorVersion=<version>` so the feature takes the package above. Restored
-  # into a private NUGET_PACKAGES, in a folder outside the checkout, then run on desktop with a
-  # click through UI Automation.
-  consume-file-based:
-    name: Run the file-based app from the package (desktop)
+  # The consumer checks (ci-uno-consume.yml): samples taken out of the repo the way the docs tell a
+  # consumer to, with Reactor from the package above instead of src/Reactor.Uno. Desktop runs the
+  # single-file app; wasm, android and ios build the counter project.
+  consume:
+    name: Consume the package
     needs: pack
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          # src/Reactor.Uno for PackageReadme.md, which the script takes the #:sdk line from.
-          sparse-checkout: |
-            samples/Uno/file-based
-            src/Reactor.Uno
-
-      - name: Download packages
-        uses: actions/download-artifact@v4
-        with:
-          name: NuGet
-          path: ${{ runner.temp }}/feed
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Run Counter.cs from the package
-        run: >-
-          ./samples/Uno/file-based/smoke-package.ps1
-          -Feed "${{ runner.temp }}/feed"
-          -Version "${{ needs.pack.outputs.version }}"
-          -WorkDir "${{ runner.temp }}/consumer"
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-consume-file-based
-          path: |
-            ${{ runner.temp }}/consumer/*.binlog
-            ${{ runner.temp }}/consumer/*.log
-          if-no-files-found: ignore
+    uses: ./.github/workflows/ci-uno-consume.yml
+    with:
+      version: ${{ needs.pack.outputs.version }}
 
   # The single required check for the Uno port. Skipped jobs (no port on the branch yet) pass.
   result:
     name: Uno CI result
-    needs: [detect, build-uno, build-mobile, pack, consume-file-based]
+    needs: [detect, build-uno, build-mobile, pack, consume]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -70,7 +70,7 @@ post, but cross-platform. The whole app is one `.cs` file
 ([`samples/Uno/file-based/Counter.cs`](../../samples/Uno/file-based/Counter.cs)):
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.95
+#:sdk Uno.Sdk@7.0.0-dev.113
 #:project ../../../src/Reactor.Uno/Reactor.Uno.csproj
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
@@ -175,7 +175,7 @@ src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
     ReactorHost.cs          # the render loop (reconcile → Window.Content → effects)
     Windowing.cs            # minimal ReactorWindow + windowing types for the shared hooks
-  global.json               # pins Uno.Sdk 7.0.0-dev.95
+  global.json               # pins Uno.Sdk 7.0.0-dev.113
   nuget.config              # nuget.org (self-contained restore)
   Directory.Build.props     # stops inheritance of the repo-root Windows build infra
   Directory.Packages.props  # CPM off for this project
@@ -262,7 +262,9 @@ version.json                         # Nerdbank.GitVersioning, for the Uno packa
 .github/actions/nuget-org-publish/
 .github/actions/nuget-uno-publish/
 .github/actions/tag-release/
+.github/scripts/uno/                 # scripts the Uno CI runs
 .github/workflows/ci-uno.yml
+.github/workflows/ci-uno-consume.yml
 .github/workflows/conventional-commits.yml
 .github/workflows/upstream-sync.yml
 ```
@@ -272,7 +274,7 @@ compiles (`src/Reactor/`, `src/Reactor.Advanced/`), the root build files
 (`Directory.Build.props`, `Directory.Packages.props`, `Reactor.slnx`,
 `global.json`), `AGENTS.md`, `docs/`, `tests/`, and their workflows in
 `.github/workflows/`. Those workflows stay in the tree so the sync merges cleanly,
-but they are switched off on this fork.
+but they are switched off on this fork (see [below](#our-workflows-on-this-fork)).
 
 These Microsoft files are modified today. Don't add to the list, and remove an
 entry when you find a way to do without it:
@@ -287,6 +289,40 @@ The shared source has no `#if REACTOR_UNO` blocks. A guard around
 `Hyperlink.UnderlineStyle` was removed once Uno made `UnderlineStyleProperty` public
 ([unoplatform/uno#23652](https://github.com/unoplatform/uno/issues/23652),
 `Uno.Sdk 6.7.0-dev.117`).
+
+### Our workflows on this fork
+
+Microsoft's workflows can't be switched off once and for all: GitHub only lists a
+workflow after its trigger first fires, and every sync can bring new ones. So a
+separate job in `upstream-sync.yml`, "Keep Microsoft's workflows off", runs with
+each nightly sync (04:00 UTC). It lists the repository's active workflows and
+switches off every one whose file name isn't in its `KEEP` list; GitHub's
+built-in workflows (`dynamic/…`, such as Code Quality) are left alone. The run's
+summary says how many it switched off.
+
+That makes `KEEP` the list of workflows this fork runs:
+
+- **A new workflow file of ours goes in `KEEP`** in the pull request that adds it,
+  and in the "Ours" list above. Otherwise the next nightly run switches it off,
+  and a switched-off workflow no longer runs on its triggers. Renaming one is the
+  same: rename it in `KEEP` too.
+- **Called workflows too** (`on: workflow_call`, such as `ci-uno-consume.yml`).
+  GitHub doesn't document whether it lists them, nor whether a switched-off one
+  still runs when another workflow calls it (a
+  [community report](https://github.com/orgs/community/discussions/60389) says it
+  does), and the summary would count it as one of Microsoft's.
+- **The job only switches workflows off.** Adding a file to `KEEP` after the
+  fact doesn't turn it back on: do that from the Actions tab, or with
+  `gh workflow enable <file name> -R unoplatform/Uno.microsoft-ui-reactor`.
+- **Until that pull request merges**, the nightly run reads `KEEP` from `uno`,
+  which doesn't have the new file yet. If GitHub lists the file after a run on
+  the pull request's branch, the job can switch it off before the merge. After
+  merging, check `gh workflow list --all` and turn it back on if it shows as
+  disabled.
+- **To see what it would switch off** without changing anything, run "Sync
+  upstream into uno" by hand with `dry_run` (`gh workflow run upstream-sync.yml
+  -f dry_run=true`): it logs `would switch off <path>` for each, and the sync job
+  makes no changes either.
 
 ### Name disambiguation (`GlobalUsings.cs`)
 
@@ -421,7 +457,7 @@ to run (`--non-interactive` stops instead).
 
 - **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
   the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release —
-  `Uno.Sdk 7.0.0-dev.95`, set in `global.json` (repo root, `src/Reactor.Uno/`,
+  `Uno.Sdk 7.0.0-dev.113`, set in `global.json` (repo root, `src/Reactor.Uno/`,
   `samples/Uno/`, and the file-based `Counter.cs` header). Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
