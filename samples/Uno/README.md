@@ -76,6 +76,14 @@ readme's Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that ve
 the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
 UI Automation (Windows, PowerShell 7).
 
+`ReactorUnoCounter/build-package.ps1 -Feed <folder> -Version <version>` does the same for
+the counter **project** on the other heads: it copies the project out of the repo and makes
+the [changes above](#reactor-on-uno-platform--samples) (drops the `ProjectReference`, adds
+`Reactor` to `UnoFeatures`, pins the package readme's Uno.Sdk in `global.json`), sets
+`UnoReactorVersion=<version>`, and builds `net10.0-browserwasm`, `net10.0-android` and
+`net10.0-ios` (pick with `-Framework`). It builds only; Android and iOS need their
+workloads.
+
 ### Android / iOS
 
 The same projects, different heads. Android has no console entry point, so each
