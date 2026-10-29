@@ -8,11 +8,11 @@ name: CI (Uno) - consume the package
 # the feature takes the packed package, restored into a private NUGET_PACKAGES in a folder outside
 # the checkout. The repo build (build-uno, build-mobile) compiles every head from source; these
 # jobs are what uses each of the package's lib/ folders.
-#   - desktop (file-based): samples/Uno/file-based/smoke-package.ps1 builds Counter.cs in the
-#     package readme's form, runs it, and clicks "+" through UI Automation.
-#   - wasm / android / ios: samples/Uno/ReactorUnoCounter/build-package.ps1 builds the counter
-#     project in the samples readme's form, one head per job. Build only, like the template rows
-#     in Uno.Templates' CI.
+#   - desktop (file-based): .github/scripts/uno/smoke-package.ps1 builds samples/Uno/file-based/Counter.cs
+#     in the package readme's form, runs it, and clicks "+" through UI Automation.
+#   - wasm / android / ios: .github/scripts/uno/build-package.ps1 builds samples/Uno/ReactorUnoCounter
+#     in the samples readme's form, one head per job. Build only, like the template rows in
+#     Uno.Templates' CI.
 #
 # This file is in upstream-sync.yml's KEEP list: the nightly sync switches off every workflow
 # that isn't (src/Reactor.Uno/README.md, "Our workflows on this fork").
@@ -42,9 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Cone mode also brings the files directly under samples/Uno (package-consumer.psm1).
           # src/Reactor.Uno for PackageReadme.md, which the script takes the #:sdk line from.
           sparse-checkout: |
+            .github/scripts/uno
             samples/Uno/file-based
             src/Reactor.Uno
 
@@ -61,7 +61,7 @@ jobs:
 
       - name: Run Counter.cs from the package
         run: >-
-          ./samples/Uno/file-based/smoke-package.ps1
+          ./.github/scripts/uno/smoke-package.ps1
           -Feed "${{ runner.temp }}/feed"
           -Version "${{ inputs.version }}"
           -WorkDir "${{ runner.temp }}/consumer"
@@ -97,9 +97,10 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Cone mode also brings the files directly under samples/Uno (package-consumer.psm1,
-          # global.json). src/Reactor.Uno for PackageReadme.md, which pins the Uno.Sdk.
+          # Cone mode also brings the files directly under samples/Uno (global.json).
+          # src/Reactor.Uno for PackageReadme.md, which pins the Uno.Sdk.
           sparse-checkout: |
+            .github/scripts/uno
             samples/Uno/ReactorUnoCounter
             src/Reactor.Uno
 
@@ -119,7 +120,7 @@ jobs:
 
       - name: Build the counter from the package
         run: >-
-          ./samples/Uno/ReactorUnoCounter/build-package.ps1
+          ./.github/scripts/uno/build-package.ps1
           -Feed "${{ runner.temp }}/feed"
           -Version "${{ inputs.version }}"
           -Framework ${{ matrix.framework }}

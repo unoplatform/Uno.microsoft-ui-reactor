@@ -262,6 +262,7 @@ version.json                         # Nerdbank.GitVersioning, for the Uno packa
 .github/actions/nuget-org-publish/
 .github/actions/nuget-uno-publish/
 .github/actions/tag-release/
+.github/scripts/uno/                 # scripts the Uno CI runs
 .github/workflows/ci-uno.yml
 .github/workflows/ci-uno-consume.yml
 .github/workflows/conventional-commits.yml

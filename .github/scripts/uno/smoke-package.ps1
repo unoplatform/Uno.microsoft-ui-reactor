@@ -1,12 +1,12 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Runs Counter.cs the way the package readme (src/Reactor.Uno/PackageReadme.md) tells a
-    consumer to: from a folder outside the repo, with Reactor from the `Reactor` UnoFeature
-    instead of the src/Reactor.Uno project.
+    Runs samples/Uno/file-based/Counter.cs the way the package readme
+    (src/Reactor.Uno/PackageReadme.md) tells a consumer to: from a folder outside the repo, with
+    Reactor from the `Reactor` UnoFeature instead of the src/Reactor.Uno project.
 
 .DESCRIPTION
-    Copies Counter.cs to -WorkDir and turns it into the readme's form, so the repo sample stays
+    Copies the sample's Counter.cs to -WorkDir and turns it into the readme's form, so the sample stays
     the one source for both: drops the `#:project` line, adds `Reactor` to `UnoFeatures`, and
     takes the `#:sdk Uno.Sdk@<version>` line from the readme (the sample's own Uno.Sdk may
     predate the feature). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
@@ -33,7 +33,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot '../package-consumer.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'package-consumer.psm1') -Force
 
 $consumer = Initialize-ConsumerFolder $Feed $Version $WorkDir
 $Feed = $consumer.Feed
@@ -41,7 +41,7 @@ $WorkDir = $consumer.WorkDir
 
 # The package readme's form of the sample.
 $sdkLine = "#:sdk Uno.Sdk@$(Get-ReadmeUnoSdkVersion)"
-$source = Get-Content (Join-Path $PSScriptRoot 'Counter.cs') -Raw
+$source = Get-Content (Join-Path $PSScriptRoot '../../../samples/Uno/file-based/Counter.cs') -Raw
 $null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
 $null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)' '#:sdk Uno.Sdk line in Counter.cs'
 $features = Get-OneMatch $source '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)' 'UnoFeatures line in Counter.cs'

@@ -14,7 +14,7 @@ using Microsoft.UI.Xaml.Media;
 /// Exits 0 on success and 1 on failure or timeout.
 /// On WebAssembly it is requested with <c>?smoke</c> in the page URL and does not exit:
 /// the "[smoke] PASS" / "[smoke] FAIL" line on the browser console is the result,
-/// which <c>smoke-wasm.ps1</c> reads from a headless browser.
+/// which <c>.github/scripts/uno/smoke-wasm.ps1</c> reads from a headless browser.
 /// </summary>
 static class SmokeTest
 {

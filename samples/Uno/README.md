@@ -63,12 +63,14 @@ for `ReactorGalleryUno` to run the gallery.
 `dotnet run -f net10.0-desktop -- --smoke` runs the counter as CI's runtime check: it
 clicks "+" once, verifies the re-render, and exits 0 (pass) or 1 (fail, after 60s).
 For WebAssembly, build with `-f net10.0-browserwasm` and run
-`./smoke-wasm.ps1` (PowerShell 7). It serves the build, opens it with
+[`.github/scripts/uno/smoke-wasm.ps1`](../../.github/scripts/uno/smoke-wasm.ps1) (PowerShell 7).
+It serves the build, opens it with
 `?smoke` in headless Chrome or Edge, and exits with the result the app logs to the
 browser console. It only looks for the browser in the Windows install folders;
 elsewhere, pass `-Browser <path>`.
 
-`file-based/smoke-package.ps1 -Feed <folder> -Version <version>` is CI's check of the
+[`.github/scripts/uno/smoke-package.ps1`](../../.github/scripts/uno/smoke-package.ps1)
+`-Feed <folder> -Version <version>` is CI's check of the
 single-file app against the **package**, in the form the
 [package readme](../../src/Reactor.Uno/PackageReadme.md#a-single-file-app) shows: it copies
 `Counter.cs` out of the repo, swaps its `#:project` line for the `Reactor` UnoFeature on the
@@ -76,7 +78,8 @@ readme's Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that ve
 the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
 UI Automation (Windows, PowerShell 7).
 
-`ReactorUnoCounter/build-package.ps1 -Feed <folder> -Version <version>` does the same for
+[`.github/scripts/uno/build-package.ps1`](../../.github/scripts/uno/build-package.ps1)
+`-Feed <folder> -Version <version>` does the same for
 the counter **project** on the other heads: it copies the project out of the repo and makes
 the [changes above](#reactor-on-uno-platform--samples) (drops the `ProjectReference`, adds
 `Reactor` to `UnoFeatures`, pins the package readme's Uno.Sdk in `global.json`), sets

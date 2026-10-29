@@ -1,18 +1,18 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Builds the counter the way the samples readme (samples/Uno/README.md) tells a consumer to take
-    a sample out of the repo: with Reactor from the `Reactor` UnoFeature instead of the
-    src/Reactor.Uno project.
+    Builds samples/Uno/ReactorUnoCounter the way the samples readme (samples/Uno/README.md) tells
+    a consumer to take a sample out of the repo: with Reactor from the `Reactor` UnoFeature instead
+    of the src/Reactor.Uno project.
 
 .DESCRIPTION
-    Copies this project to -WorkDir and makes the readme's changes: drops the ProjectReference to
+    Copies the counter project to -WorkDir and makes the readme's changes: drops the ProjectReference to
     src/Reactor.Uno, adds `Reactor` to `UnoFeatures`, and writes a global.json (samples/Uno's, with
     the Uno.Sdk the package readme pins; the repo's own Uno.Sdk may predate the feature).
     `UnoReactorVersion=<Version>` points the feature at the package under test instead of the one
     the Uno.Sdk pins. Restores from -Feed (only that package; everything else from nuget.org) into
     a private NUGET_PACKAGES, and builds each of -Framework.
-    Build only: the package's desktop run is file-based/smoke-package.ps1's.
+    Build only: the package's desktop run is smoke-package.ps1's.
     Exits 0 on success, 1 on any failure.
 
     -WorkDir must not sit under the repo: a global.json, Directory.Build.* or nuget.config above
@@ -31,18 +31,19 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot '../package-consumer.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'package-consumer.psm1') -Force
+$samples = Join-Path $PSScriptRoot '../../../samples/Uno'
 
 try {
     $consumer = Initialize-ConsumerFolder $Feed $Version $WorkDir
     $Feed = $consumer.Feed
     $WorkDir = $consumer.WorkDir
 
-    # The project, without build output or the repo's scripts.
+    # The project, without build output.
     $project = Join-Path $WorkDir 'ReactorUnoCounter'
     if (Test-Path $project) { Remove-Item -Recurse -Force $project }
     New-Item -ItemType Directory $project | Out-Null
-    Get-ChildItem $PSScriptRoot -Exclude bin, obj, *.binlog, *.user, *.ps1 | Copy-Item -Destination $project -Recurse
+    Get-ChildItem (Join-Path $samples 'ReactorUnoCounter') -Exclude bin, obj, *.binlog, *.user | Copy-Item -Destination $project -Recurse
 
     # The samples readme's form of the project.
     $csprojPath = Join-Path $project 'ReactorUnoCounter.csproj'
@@ -63,7 +64,7 @@ try {
     Write-Host 'ReactorUnoCounter.csproj:'
     Get-Content $csprojPath | ForEach-Object { Write-Host "  $_" }
 
-    $globalJson = Get-Content (Join-Path $PSScriptRoot '../global.json') -Raw | ConvertFrom-Json
+    $globalJson = Get-Content (Join-Path $samples 'global.json') -Raw | ConvertFrom-Json
     $globalJson.'msbuild-sdks'.'Uno.Sdk' = Get-ReadmeUnoSdkVersion
     $globalJson | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $WorkDir 'global.json')
     Write-Host "global.json: $(Get-Content (Join-Path $WorkDir 'global.json') -Raw)"

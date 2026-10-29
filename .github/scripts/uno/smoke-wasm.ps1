@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    The WebAssembly run of the counter's smoke test (see SmokeTest.cs).
+    The WebAssembly run of the counter's smoke test (see samples/Uno/ReactorUnoCounter/SmokeTest.cs).
 
 .DESCRIPTION
     Serves the existing net10.0-browserwasm build with `dotnet run --no-build`, opens it
@@ -13,6 +13,8 @@
         dotnet build samples/Uno/ReactorUnoCounter/ReactorUnoCounter.csproj -f net10.0-browserwasm
 #>
 param(
+    # A project with the counter's `?smoke` hook.
+    [string]$Project = (Join-Path $PSScriptRoot '../../../samples/Uno/ReactorUnoCounter/ReactorUnoCounter.csproj'),
     [string]$Configuration = 'Debug',
     # Covers the server start and the page load; the app gives up on its own 60s after it starts.
     [int]$TimeoutSeconds = 180,
@@ -51,9 +53,8 @@ $result = $null
 try {
     # On a browserwasm project, `dotnet run` starts WasmAppHost, which serves the build
     # and prints "App url: http://127.0.0.1:<port>/".
-    $project = Join-Path $PSScriptRoot 'ReactorUnoCounter.csproj'
     $server = Start-Process dotnet -PassThru -NoNewWindow `
-        -ArgumentList 'run', '--no-build', '--project', $project, '-f', 'net10.0-browserwasm', '-c', $Configuration `
+        -ArgumentList 'run', '--no-build', '--project', $Project, '-f', 'net10.0-browserwasm', '-c', $Configuration `
         -RedirectStandardOutput $serverLog -RedirectStandardError "$serverLog.err"
 
     $url = $null

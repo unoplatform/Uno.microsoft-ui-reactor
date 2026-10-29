@@ -1,6 +1,6 @@
 # Shared by the scripts that build a sample the way a consumer does: in a folder outside the repo,
 # against a packed Uno.Microsoft.UI.Reactor instead of the src/Reactor.Uno project
-# (file-based/smoke-package.ps1, ReactorUnoCounter/build-package.ps1).
+# (smoke-package.ps1, build-package.ps1).
 
 $ErrorActionPreference = 'Stop'
 $packageId = 'Uno.Microsoft.UI.Reactor'
@@ -67,7 +67,7 @@ function Get-OneMatch([string]$Text, [string]$Pattern, [string]$What) {
 # The Uno.Sdk version the package readme (src/Reactor.Uno/PackageReadme.md) pins in its
 # single-file app's `#:sdk` line: the first one with the `Reactor` UnoFeature that the docs name.
 function Get-ReadmeUnoSdkVersion {
-    $readme = Get-Content (Join-Path $PSScriptRoot '../../src/Reactor.Uno/PackageReadme.md') -Raw
+    $readme = Get-Content (Join-Path $PSScriptRoot '../../../src/Reactor.Uno/PackageReadme.md') -Raw
     (Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk@(\S+)(?=\r?$)' '#:sdk Uno.Sdk line in PackageReadme.md').Groups[1].Value
 }
 
