@@ -1,16 +1,20 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Runs Counter.cs the way a consumer does: from a folder outside the repo, against a packed
-    Uno.Microsoft.UI.Reactor instead of the src/Reactor.Uno project.
+    Runs Counter.cs the way the package readme (src/Reactor.Uno/PackageReadme.md) tells a
+    consumer to: from a folder outside the repo, with Reactor from the `Reactor` UnoFeature
+    instead of the src/Reactor.Uno project.
 
 .DESCRIPTION
-    Copies Counter.cs to -WorkDir and rewrites its `#:project` line to
-    `#:package Uno.Microsoft.UI.Reactor@[<Version>]`, so the repo sample stays the one source
-    for both forms. Restores from -Feed (only that package; everything else from nuget.org)
-    into a private NUGET_PACKAGES, so a package already in the global cache can't stand in for
-    the one under test. Builds the desktop app, starts it, and over UI Automation (no input
-    injection) checks it shows "Count: 0", clicks "+", and waits for "Count: 1".
+    Copies Counter.cs to -WorkDir and turns it into the readme's form, so the repo sample stays
+    the one source for both: drops the `#:project` line, adds `Reactor` to `UnoFeatures`, and
+    takes the `#:sdk Uno.Sdk@<version>` line from the readme (the sample's own Uno.Sdk may
+    predate the feature). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
+    version, points the feature at the package under test instead of the one the Uno.Sdk pins.
+    Restores from -Feed (only that package; everything else from nuget.org) into a private
+    NUGET_PACKAGES, so a package already in the global cache can't stand in for the one under
+    test. Builds the desktop app, starts it, and over UI Automation (no input injection) checks
+    it shows "Count: 0", clicks "+", and waits for "Count: 1".
     Exits 0 on success, 1 on any failure.
 
     -WorkDir must not sit under the repo: a global.json, Directory.Build.* or nuget.config above
@@ -44,13 +48,26 @@ for ($dir = Split-Path $WorkDir -Parent; $dir; $dir = Split-Path $dir -Parent) {
     if ($found) { throw "-WorkDir must not sit under a folder with build settings; found $($found -join ', ')" }
 }
 
-# The package form of the sample.
+# The package readme's form of the sample.
+function Get-OneMatch([string]$text, [string]$pattern, [string]$what) {
+    $found = [regex]::Matches($text, $pattern)
+    if ($found.Count -ne 1) { throw "Expected one $what, found $($found.Count)" }
+    $found[0]
+}
+$readme = Get-Content (Join-Path $PSScriptRoot '../../../src/Reactor.Uno/PackageReadme.md') -Raw
+$sdkLine = (Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)' '#:sdk Uno.Sdk line in PackageReadme.md').Value
 $source = Get-Content (Join-Path $PSScriptRoot 'Counter.cs') -Raw
-$projectLine = '(?m)^#:project .*$'
-$matched = [regex]::Matches($source, $projectLine).Count
-if ($matched -ne 1) { throw "Expected one #:project line in Counter.cs, found $matched" }
+$null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
+$null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)' '#:sdk Uno.Sdk line in Counter.cs'
+$features = Get-OneMatch $source '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)' 'UnoFeatures line in Counter.cs'
+if ($features.Groups[1].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'Counter.cs already has the Reactor feature' }
+$source = [regex]::Replace($source, '(?m)^#:project .*\r?\n', '')
+$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)', "$sdkLine`n#:property UnoReactorVersion=$Version")
+$source = [regex]::Replace($source, '(?m)^(#:property UnoFeatures=[^\r\n]*)(?=\r?$)', '$1;Reactor')
 $app = Join-Path $WorkDir 'Counter.cs'
-Set-Content $app ([regex]::Replace($source, $projectLine, "#:package $packageId@[$Version]")) -NoNewline
+Set-Content $app $source -NoNewline
+Write-Host "Counter.cs header:"
+Get-Content $app | Where-Object { $_ -like '#:*' } | ForEach-Object { Write-Host "  $_" }
 
 # The package comes from -Feed only: nuget.org has dev builds under the same ID.
 Set-Content (Join-Path $WorkDir 'nuget.config') @"
@@ -125,7 +142,7 @@ try {
     $plus = Wait-Until { Find-Named $window '+' } 'the "+" button'
     $plus.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     $null = Wait-Until { Find-Named $window 'Count: 1' } '"Count: 1" after clicking "+"'
-    Write-Host 'PASS: the package-form Counter.cs started, and clicking "+" re-rendered "Count: 0" as "Count: 1"'
+    Write-Host 'PASS: the readme-form Counter.cs started, and clicking "+" re-rendered "Count: 0" as "Count: 1"'
 }
 catch {
     Write-Host "FAIL: $_"

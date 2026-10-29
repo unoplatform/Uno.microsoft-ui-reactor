@@ -16,11 +16,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- Reactor apps have no XAML, so there is no ApplicationDefinition for Uno's
-         iOS Hot Restart helper generator to read (Uno0005). Opt out; this only
-         disables VS's iOS *Hot Restart* deploy helper, not Hot Reload. -->
-    <UnoDisableHotRestartHelperGeneration>true</UnoDisableHotRestartHelperGeneration>
-
     <UnoFeatures>
       SkiaRenderer;
     </UnoFeatures>

@@ -101,7 +101,7 @@ jobs:
         run: dotnet build Reactor.Uno.slnx -f net10.0-desktop -c Debug -bl:artifacts-logs/build-desktop.binlog
 
       # The single-file sample in its in-repo `#:project` form; it is not in the slnx. Its
-      # `#:package` form runs in the consume-file-based job.
+      # package form runs in the consume-file-based job.
       - name: Build the file-based app
         run: dotnet build samples/Uno/file-based/Counter.cs -bl:artifacts-logs/build-file-based.binlog
 
@@ -265,10 +265,11 @@ jobs:
           path: artifacts-logs
           if-no-files-found: ignore
 
-  # The single-file app the way a consumer runs it (smoke-package.ps1): Counter.cs with its
-  # `#:project` line rewritten to `#:package Uno.Microsoft.UI.Reactor@[<version>]`, restored from
-  # the package above into a private NUGET_PACKAGES, in a folder outside the checkout, then run
-  # on desktop with a click through UI Automation.
+  # The single-file app the way the package readme has a consumer run it (smoke-package.ps1):
+  # Counter.cs with its `#:project` line swapped for the `Reactor` UnoFeature, the readme's
+  # Uno.Sdk, and `UnoReactorVersion=<version>` so the feature takes the package above. Restored
+  # into a private NUGET_PACKAGES, in a folder outside the checkout, then run on desktop with a
+  # click through UI Automation.
   consume-file-based:
     name: Run the file-based app from the package (desktop)
     needs: pack
@@ -277,7 +278,10 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          sparse-checkout: samples/Uno/file-based
+          # src/Reactor.Uno for PackageReadme.md, which the script takes the #:sdk line from.
+          sparse-checkout: |
+            samples/Uno/file-based
+            src/Reactor.Uno
 
       - name: Download packages
         uses: actions/download-artifact@v4

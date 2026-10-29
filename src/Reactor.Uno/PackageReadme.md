@@ -6,20 +6,34 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 
 ## Requirements
 
-- The .NET 10 SDK.
-- Uno.Sdk with the Skia renderer (`SkiaRenderer` in `UnoFeatures`). This version of the package is built against Uno.Sdk `7.0.0-dev.95`; use the same Uno.Sdk version in your app.
+- The .NET SDK 10.0.400 or later.
+- Uno.Sdk `7.0.0-dev.104` or later, with the Skia renderer. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
+
+## A new app
+
+Install the Uno templates and create an app from `unoapp-reactor`:
+
+```bash
+dotnet new install Uno.Templates@7.0.0-dev.104
+dotnet new unoapp-reactor -n MyApp
+cd MyApp
+dotnet run -f net10.0-desktop
+```
+
+Any later `Uno.Templates` works too; a plain `dotnet new install Uno.Templates` installs the latest stable templates, which don't have `unoapp-reactor` yet.
+
+The app targets desktop, WebAssembly, Android and iOS. Pick fewer with `-platforms`, for example `-platforms desktop wasm`.
 
 ## A single-file app
 
 Save this as `Counter.cs` and run `dotnet run Counter.cs`:
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.95
-#:package Uno.Microsoft.UI.Reactor@[x.y.z]
+#:sdk Uno.Sdk@7.0.0-dev.104
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
-#:property UnoFeatures=SkiaRenderer
+#:property UnoFeatures=SkiaRenderer;Reactor
 #:property PublishAot=false
 #:property PackAsTool=false
 
@@ -46,35 +60,28 @@ class CounterApp : Component
 }
 ```
 
-Replace `x.y.z` with this package's version. Keep the square brackets: they pin that exact version, while `@x.y.z` without them is only a minimum and can restore a different build.
+The `#:sdk` line pins the Uno.Sdk, and with it the Reactor version: a lone file has no `global.json` to do it. Single-file apps run on desktop only for now.
 
-Single-file apps run on desktop only for now.
+## In an existing Uno project
 
-## In an Uno project
-
-Reference the package from a single Uno project that uses the Skia renderer:
+Add `Reactor` to `UnoFeatures` in a single Uno project that uses the Skia renderer:
 
 ```xml
-<Project Sdk="Uno.Sdk">
-  <PropertyGroup>
-    <TargetFrameworks>net10.0-desktop;net10.0-browserwasm;net10.0-android;net10.0-ios</TargetFrameworks>
-    <OutputType>Exe</OutputType>
-    <UnoSingleProject>true</UnoSingleProject>
-    <UnoFeatures>SkiaRenderer</UnoFeatures>
-    <!-- A Reactor app has no App.xaml, which Uno's iOS Hot Restart helper
-         generator needs; without this, the iOS build fails with Uno0005. -->
-    <UnoDisableHotRestartHelperGeneration>true</UnoDisableHotRestartHelperGeneration>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Uno.Microsoft.UI.Reactor" Version="x.y.z" />
-  </ItemGroup>
-</Project>
+<UnoFeatures>
+  SkiaRenderer;
+  Reactor;
+</UnoFeatures>
 ```
 
-Pin Uno.Sdk to the same version in `global.json`, under `msbuild-sdks`.
+Pin Uno.Sdk `7.0.0-dev.104` or later in its `global.json`. The feature first shipped in `7.0.0-dev.97`; an Uno.Sdk older than that ignores it without a warning, and the build then fails with `CS0234` on `Microsoft.UI.Reactor`.
 
-Desktop and iOS start the app with `ReactorApp.Run<TRoot>(...)`, as above. WebAssembly and Android need a different entry point: the [counter sample](https://github.com/unoplatform/uno.microsoft-ui-reactor/tree/uno/samples/Uno/ReactorUnoCounter) shows all four, and it is the simplest project to start from.
+Remove the Windows target framework (`net10.0-windows10.0.x`) from the project: with `Reactor` in `UnoFeatures`, that target fails with `UNOB0031`, since this package doesn't target the Windows App SDK.
+
+Desktop, WebAssembly and iOS start the app with `ReactorApp.Run<TRoot>(...)`, as above. Android has no console entry point, so it starts from an `Application` in `Platforms/Android` whose `CreateHost` returns `ReactorApp.CreateHost<TRoot>()`. The `unoapp-reactor` template generates both.
+
+## Another Reactor version
+
+To use a different version of this package than the one your Uno.Sdk brings in, set `UnoReactorVersion`: `<UnoReactorVersion>x.y.z</UnoReactorVersion>` in the project, or `#:property UnoReactorVersion=x.y.z` in a single file.
 
 ## Learn more
 

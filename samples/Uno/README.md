@@ -16,8 +16,11 @@ All three app samples are **single Uno projects targeting all four heads** — t
 [Status](../../src/Reactor.Uno/README.md#status) in the port README).
 
 The samples reference the port as a project (`src/Reactor.Uno`). To use one
-outside this repo, replace that `ProjectReference` with a `PackageReference` to
-[`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor).
+outside this repo, drop that `ProjectReference`, add `Reactor` to `UnoFeatures`,
+and pin Uno.Sdk `7.0.0-dev.104` or later in `global.json`: the Uno.Sdk then brings
+in [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor).
+For a new app, start from `dotnet new unoapp-reactor` instead (see the port
+README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-from-the-template)).
 
 ## Prerequisites
 
@@ -66,10 +69,12 @@ browser console. It only looks for the browser in the Windows install folders;
 elsewhere, pass `-Browser <path>`.
 
 `file-based/smoke-package.ps1 -Feed <folder> -Version <version>` is CI's check of the
-single-file app against the **package**: it copies `Counter.cs` out of the repo, swaps its
-`#:project` line for `#:package Uno.Microsoft.UI.Reactor@[<version>]`, restores that
-version from the `-Feed` folder (a `dotnet pack` output) into a private package cache, and
-clicks "+" over UI Automation (Windows, PowerShell 7).
+single-file app against the **package**, in the form the
+[package readme](../../src/Reactor.Uno/PackageReadme.md#a-single-file-app) shows: it copies
+`Counter.cs` out of the repo, swaps its `#:project` line for the `Reactor` UnoFeature on the
+readme's Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that version from
+the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
+UI Automation (Windows, PowerShell 7).
 
 ### Android / iOS
 
@@ -130,11 +135,6 @@ first page on the simulator.
 > reports only as a generic failure. Use `-t:Run`, or build a self-contained APK
 > with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
 > sideload one.
-
-> Reactor apps contain **no XAML**, so there is no `ApplicationDefinition` for
-> Uno's iOS Hot Restart helper generator to read and it fails with `Uno0005`. The
-> samples set `<UnoDisableHotRestartHelperGeneration>true</...>`, which disables
-> only VS's iOS *Hot Restart* deploy helper — not Hot Reload.
 
 ### file-based/Counter.cs
 
