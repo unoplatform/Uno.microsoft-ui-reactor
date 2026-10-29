@@ -135,4 +135,21 @@
       <_ReactorRestoreLibraryOutputType />
     </PropertyGroup>
   </Target>
+
+  <!-- `dotnet run App.cs` on Android: dotnet run only picks a device and calls
+       DeployToDevice for a project file, so a single-file app was built and then
+       started without ever being installed ("Error: Failed to start app:" and nothing
+       else). dotnet run builds ComputeRunArguments right after Build, in the same
+       request, so installing first puts the app on the device before it's started.
+       That only holds while dotnet run goes through MSBuild: once it has cached a
+       build, it skips MSBuild for an unchanged file, and compiles an edited one with
+       csc alone, so the app was neither installed nor updated on the device.
+       FileBasedProgramCanSkipMSBuild=false turns that cache off. -->
+  <PropertyGroup Condition="'$(FileBasedProgram)' == 'true' and '$(AndroidApplication)' == 'true'">
+    <FileBasedProgramCanSkipMSBuild Condition="'$(FileBasedProgramCanSkipMSBuild)' == ''">false</FileBasedProgramCanSkipMSBuild>
+  </PropertyGroup>
+  <Target Name="_ReactorInstallFileBasedAndroidApp"
+          BeforeTargets="ComputeRunArguments"
+          DependsOnTargets="Install"
+          Condition="'$(FileBasedProgram)' == 'true' and '$(AndroidApplication)' == 'true'" />
 </Project>
