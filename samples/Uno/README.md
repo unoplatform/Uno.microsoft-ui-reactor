@@ -9,7 +9,7 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 | [`ReactorUnoCounter`](ReactorUnoCounter) | Minimal counter — the smallest Reactor-on-Uno app | desktop, wasm, android, ios |
 | [`ReactorUnoShowcase`](ReactorUnoShowcase) | ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, file picker, multi-window (desktop only) | desktop, wasm, android, ios |
 | [`ReactorGalleryUno`](ReactorGalleryUno) | The Reactor gallery, sharing [`samples/ReactorGallery`](../ReactorGallery)'s source; the docking and WebView2 pages are stand-ins | desktop, wasm, android, ios |
-| [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm with [a header change](../../src/Reactor.Uno/README.md#run-on-webassembly-instead) |
+| [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm and Android with a header change ([wasm](../../src/Reactor.Uno/README.md#run-on-webassembly-instead), [Android](../../src/Reactor.Uno/README.md#run-on-android-instead)) |
 
 All three app samples are **single Uno projects targeting all four heads** — the
 `Component` source is identical everywhere; only the entry point differs (see
@@ -97,8 +97,9 @@ The same projects, different heads, and the same `Program.cs`: Android never cal
 ```bash
 cd samples/Uno/ReactorUnoCounter
 
-# Deploy + launch on a connected device or emulator (check `adb devices` first)
-dotnet build -f net10.0-android -t:Run
+# Deploy + launch on a connected device or emulator (check `adb devices` first);
+# the app's logcat streams to the terminal until Ctrl+C
+dotnet run -f net10.0-android
 
 # iOS — compiles on Windows; running it needs a Mac
 dotnet build -f net10.0-ios
@@ -142,7 +143,7 @@ first page on the simulator.
 > tooling pushes them separately to `files/.__override__/`. Installing the APK by
 > hand therefore produces an app that aborts at startup with
 > `No assemblies found in '…/.__override__/arm64-v8a'` (SIGABRT), which the phone
-> reports only as a generic failure. Use `-t:Run`, or build a self-contained APK
+> reports only as a generic failure. Use `dotnet run`, or build a self-contained APK
 > with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
 > sideload one.
 

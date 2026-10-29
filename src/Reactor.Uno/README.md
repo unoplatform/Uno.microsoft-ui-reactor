@@ -149,14 +149,28 @@ the target framework reaches the build from outside, as it does for a project's
 `dotnet build -f`, early enough for Uno.Sdk to see it. The empty
 `TargetFramework` clears the `net10.0` default that a file-based app gets.
 
+### Run on Android instead
+
+For Android, change the `TargetFramework` line, again with the same `ReactorApp.Run` call:
+
+```csharp
+#:property TargetFramework=net10.0-android
+```
+
+With a device or emulator connected (`adb devices`), `dotnet run Counter.cs` then
+installs the app, starts it and streams its logcat until Ctrl+C. `dotnet run`
+itself only installs apps that have a project file. For a single file, Reactor's
+build targets install the app before `dotnet run` starts it.
+
 [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
-multi-targeted project that runs on both from one source, with the same
+multi-targeted project that runs on all of them from one source, with the same
 `ReactorApp.Run` call on each:
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
 dotnet run -f net10.0-desktop          # desktop window
 dotnet run -f net10.0-browserwasm      # prints a localhost URL — open it
+dotnet run -f net10.0-android          # installs on the connected device, streams logcat
 ```
 
 ## Architecture
