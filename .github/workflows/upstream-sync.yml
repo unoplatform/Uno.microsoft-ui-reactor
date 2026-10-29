@@ -61,7 +61,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           # The workflows this fork runs; every other one comes from microsoft/microsoft-ui-reactor.
-          KEEP: ci-uno.yml conventional-commits.yml upstream-sync.yml
+          # A new workflow file of ours goes here, called ones too (ci-uno-consume.yml), and in the
+          # "Ours" list of src/Reactor.Uno/README.md ("Our workflows on this fork").
+          KEEP: ci-uno.yml ci-uno-consume.yml conventional-commits.yml upstream-sync.yml
         run: |
           set -euo pipefail
           count=0
