@@ -135,23 +135,20 @@ the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 
 ### Run on WebAssembly instead
 
-A single file-based app targets one TFM at a time. For WASM, replace the
-`TargetFramework` line with these two and keep the same `ReactorApp.Run` call:
+A single file-based app targets one TFM at a time. For WASM, change the
+`TargetFramework` line, again with the same `ReactorApp.Run` call:
 
 ```csharp
-#:property TargetFramework=
-#:property TargetFrameworks=net10.0-browserwasm
+#:property TargetFramework=net10.0-browserwasm
 ```
 
 `dotnet run Counter.cs` then prints a localhost URL — open it.
 
-A plain `#:property TargetFramework=net10.0-browserwasm` doesn't work. Uno.Sdk
-picks the WebAssembly SDK from the target framework before it reads the file's
-`#:property` lines, so that build is an ordinary console app with no `wwwroot`,
-and it crashes at launch with `Failed to load 'icuuc77'`. With `TargetFrameworks`,
-the target framework reaches the build from outside, as it does for a project's
-`dotnet build -f`, early enough for Uno.Sdk to see it. The empty
-`TargetFramework` clears the `net10.0` default that a file-based app gets.
+Uno.Sdk `7.0.0-dev.104` and later build this as a WebAssembly app. An older
+Uno.Sdk picked the WebAssembly SDK from the target framework before it read the
+file's `#:property` lines, so the build was an ordinary console app that crashed
+at launch with `Failed to load 'icuuc77'`; there, use
+`#:property TargetFramework=` plus `#:property TargetFrameworks=net10.0-browserwasm`.
 
 ### Run on Android instead
 
