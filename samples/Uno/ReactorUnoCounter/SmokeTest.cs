@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation.Metadata;
 
 /// <summary>
 /// <c>--smoke</c>: the CI runtime check. Waits for the counter to render, clicks "+"
@@ -18,10 +19,30 @@ using Microsoft.UI.Xaml.Media;
 /// On Android, Main gets no arguments, so it is requested with the environment variable
 /// <c>REACTOR_SMOKE=1</c>; the result is the same line in logcat, which
 /// <c>.github/scripts/uno/smoke-android.ps1</c> reads from an emulator.
+/// The run also turns on <see cref="ApiInformation.IsFailWhenNotImplemented"/> for its
+/// whole length, so an API Uno has only as a stub fails the smoke test instead of
+/// silently doing nothing.
 /// </summary>
 static class SmokeTest
 {
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// The <c>configure</c> callback for <c>ReactorApp.Run</c>: <see cref="Start"/> when the
+    /// smoke test is <see cref="Requested"/>, otherwise <c>null</c>.
+    /// </summary>
+    public static Action<ReactorHost>? Arm(string[] args)
+    {
+        if (!Requested(args)) return null;
+
+        // Must be set before Run: Uno checks it when a stub is called, and OnLaunched is
+        // where Reactor's hosting calls the most Uno APIs. A stub that throws there stops
+        // startup before Start's timer runs, so there is no FAIL line: desktop and
+        // WebAssembly give no result and time out, and Android crashes, which the smoke
+        // script reports.
+        ApiInformation.IsFailWhenNotImplemented = true;
+        return Start;
+    }
 
     /// <summary>
     /// <c>--smoke</c> on the command line, <c>?smoke</c> in the page URL on WebAssembly,
