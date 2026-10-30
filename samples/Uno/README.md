@@ -68,6 +68,12 @@ It serves the build, opens it with
 `?smoke` in headless Chrome or Edge, and exits with the result the app logs to the
 browser console. It only looks for the browser in the Windows install folders;
 elsewhere, pass `-Browser <path>`.
+For Android, build an APK that carries its assemblies for the emulator's ABI
+(`-f net10.0-android -p:EmbedAssembliesIntoApk=true -p:RuntimeIdentifier=android-x64`), start
+an emulator, and run
+[`.github/scripts/uno/smoke-android.ps1`](../../.github/scripts/uno/smoke-android.ps1)
+`-Apk <path>`. Android calls `Main` with no arguments, so the script asks for the check with
+`REACTOR_SMOKE=1` through the `debug.mono.env` property, then reads the result from logcat.
 
 [`.github/scripts/uno/smoke-package.ps1`](../../.github/scripts/uno/smoke-package.ps1)
 `-Feed <folder> -Version <version>` is CI's check of the

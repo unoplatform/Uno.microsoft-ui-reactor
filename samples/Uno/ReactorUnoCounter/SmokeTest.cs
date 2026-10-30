@@ -15,15 +15,23 @@ using Microsoft.UI.Xaml.Media;
 /// On WebAssembly it is requested with <c>?smoke</c> in the page URL and does not exit:
 /// the "[smoke] PASS" / "[smoke] FAIL" line on the browser console is the result,
 /// which <c>.github/scripts/uno/smoke-wasm.ps1</c> reads from a headless browser.
+/// On Android, Main gets no arguments, so it is requested with the environment variable
+/// <c>REACTOR_SMOKE=1</c>; the result is the same line in logcat, which
+/// <c>.github/scripts/uno/smoke-android.ps1</c> reads from an emulator.
 /// </summary>
 static class SmokeTest
 {
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
-    /// <summary><c>--smoke</c> on the command line, or <c>?smoke</c> in the page URL on WebAssembly.</summary>
+    /// <summary>
+    /// <c>--smoke</c> on the command line, <c>?smoke</c> in the page URL on WebAssembly,
+    /// or <c>REACTOR_SMOKE=1</c> on Android.
+    /// </summary>
     public static bool Requested(string[] args) =>
 #if __WASM__
         RequestedByPageUrl();
+#elif __ANDROID__
+        Environment.GetEnvironmentVariable("REACTOR_SMOKE") == "1";
 #else
         Array.IndexOf(args, "--smoke") >= 0;
 #endif
