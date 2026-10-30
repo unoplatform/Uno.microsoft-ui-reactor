@@ -65,7 +65,8 @@ version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
 
 To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
-and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with. The
+and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with, in its
+`global.json` (or in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The
 feature first shipped in Uno.Sdk `7.0.0-dev.97`; an older Uno.Sdk ignores it
 silently, and the build fails with `CS0234` on `Microsoft.UI.Reactor`.
 
@@ -76,7 +77,7 @@ post, but cross-platform. The whole app is one `.cs` file
 ([`samples/Uno/file-based/Counter.cs`](../../samples/Uno/file-based/Counter.cs)):
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.113
+#:sdk Uno.Sdk
 #:project ../../../src/Reactor.Uno/Reactor.Uno.csproj
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
@@ -118,9 +119,12 @@ cd samples/Uno/file-based
 dotnet run Counter.cs
 ```
 
-The `#:project` line builds the port from this repo. Outside it, delete that line,
-pin `#:sdk Uno.Sdk@7.0.0-dev.104` or later, and add `Reactor` to the `UnoFeatures`
-line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
+The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk`
+takes its version from the repo-root [`global.json`](../../global.json),
+the one nearest the file. Outside the repo, delete the `#:project` line,
+put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.104` or later
+(or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add `Reactor` to
+the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 [package readme](PackageReadme.md#a-single-file-app) shows.
 
 > **Versus the WinUI version.** The WinUI file-based app uses
@@ -131,23 +135,20 @@ line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 
 ### Run on WebAssembly instead
 
-A single file-based app targets one TFM at a time. For WASM, replace the
-`TargetFramework` line with these two and keep the same `ReactorApp.Run` call:
+A single file-based app targets one TFM at a time. For WASM, change the
+`TargetFramework` line, again with the same `ReactorApp.Run` call:
 
 ```csharp
-#:property TargetFramework=
-#:property TargetFrameworks=net10.0-browserwasm
+#:property TargetFramework=net10.0-browserwasm
 ```
 
 `dotnet run Counter.cs` then prints a localhost URL — open it.
 
-A plain `#:property TargetFramework=net10.0-browserwasm` doesn't work. Uno.Sdk
-picks the WebAssembly SDK from the target framework before it reads the file's
-`#:property` lines, so that build is an ordinary console app with no `wwwroot`,
-and it crashes at launch with `Failed to load 'icuuc77'`. With `TargetFrameworks`,
-the target framework reaches the build from outside, as it does for a project's
-`dotnet build -f`, early enough for Uno.Sdk to see it. The empty
-`TargetFramework` clears the `net10.0` default that a file-based app gets.
+Uno.Sdk `7.0.0-dev.104` and later build this as a WebAssembly app. An older
+Uno.Sdk picked the WebAssembly SDK from the target framework before it read the
+file's `#:property` lines, so the build was an ordinary console app that crashed
+at launch with `Failed to load 'icuuc77'`; there, use
+`#:property TargetFramework=` plus `#:property TargetFrameworks=net10.0-browserwasm`.
 
 ### Run on Android instead
 
@@ -195,13 +196,12 @@ src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
     ReactorHost.cs          # the render loop (reconcile → Window.Content → effects)
     Windowing.cs            # minimal ReactorWindow + windowing types for the shared hooks
-  global.json               # pins Uno.Sdk 7.0.0-dev.113
   nuget.config              # nuget.org (self-contained restore)
   Directory.Build.props     # stops inheritance of the repo-root Windows build infra
   Directory.Packages.props  # CPM off for this project
 
 samples/Uno/                # Uno samples — one shared isolation set for all three
-  global.json · nuget.config · Directory.Build.props · Directory.Packages.props
+  nuget.config · Directory.Build.props · Directory.Packages.props
   ReactorUnoCounter/        # normal Uno single-project app (desktop + wasm)
   ReactorUnoShowcase/       # larger showcase app
   file-based/Counter.cs     # the single-file app
@@ -302,7 +302,7 @@ entry when you find a way to do without it:
 | File | Change | Why it isn't in our paths |
 |---|---|---|
 | `README.md` | An Uno Platform section at the top | GitHub shows the root README on the fork's front page. |
-| `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | `Reactor.Uno.slnx` sits at the root, so building it resolves SDKs from the root `global.json`; the ones under `src/Reactor.Uno/` and `samples/Uno/` are read only by builds started in those folders. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
+| `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | It's the port's only Uno.Sdk pin: `Reactor.Uno.slnx` sits at the root, and every Uno project and `Counter.cs` below it reads this file too. A second `global.json` under the port would win for builds started inside it and could drift from this one. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
 | `src/Reactor/Core/Reconciler.Mount.cs` | `return null` → `return default` in a generic helper | Satisfies Uno's nullable analysis. Behaves the same on Windows, since `T` is constrained to a reference type. |
 
 The shared source has no `#if REACTOR_UNO` blocks. A guard around
@@ -476,9 +476,9 @@ to run (`--non-interactive` stops instead).
 ## Known limitations / notes
 
 - **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
-  the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release —
-  `Uno.Sdk 7.0.0-dev.113`, set in `global.json` (repo root, `src/Reactor.Uno/`,
-  `samples/Uno/`, and the file-based `Counter.cs` header). Uno 7.0 renamed the runtime
+  the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release
+  pinned in the repo-root `global.json`, which the projects and the file-based
+  `Counter.cs` all read. Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK

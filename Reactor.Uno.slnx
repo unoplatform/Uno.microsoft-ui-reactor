@@ -4,8 +4,8 @@
     Reactor.slnx on purpose: the main solution drives the Windows / Windows
     App SDK build (and CI restores/builds it), so pulling the Uno.Sdk projects
     into it would force Uno.Sdk + Skia/WASM/Android package restore onto every
-    Windows build. Each project here resolves the Uno.Sdk from its own nearby
-    global.json (src/Reactor.Uno, samples/Uno) and builds in isolation.
+    Windows build. Every project here resolves the Uno.Sdk from the repo-root
+    global.json, the only one in the repo, and builds in isolation.
 
     The file-based single-file app (samples/Uno/file-based/Counter.cs) is not a
     project; run it with `dotnet run Counter.cs` from its folder.

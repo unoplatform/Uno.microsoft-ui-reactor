@@ -7,8 +7,8 @@
 
 .DESCRIPTION
     Copies the counter project to -WorkDir and makes the readme's changes: drops the ProjectReference to
-    src/Reactor.Uno, adds `Reactor` to `UnoFeatures`, and writes a global.json (samples/Uno's, with
-    the Uno.Sdk the package readme pins; the repo's own Uno.Sdk may predate the feature).
+    src/Reactor.Uno, adds `Reactor` to `UnoFeatures`, and writes a global.json with the repo root's .NET SDK
+    and Uno.Sdk pins (the project's `Sdk="Uno.Sdk"` names no version).
     `UnoReactorVersion=<Version>` points the feature at the package under test instead of the one
     the Uno.Sdk pins. Restores from -Feed (only that package; everything else from nuget.org) into
     a private NUGET_PACKAGES, and builds each of -Framework.
@@ -64,10 +64,7 @@ try {
     Write-Host 'ReactorUnoCounter.csproj:'
     Get-Content $csprojPath | ForEach-Object { Write-Host "  $_" }
 
-    $globalJson = Get-Content (Join-Path $samples 'global.json') -Raw | ConvertFrom-Json
-    $globalJson.'msbuild-sdks'.'Uno.Sdk' = Get-ReadmeUnoSdkVersion
-    $globalJson | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $WorkDir 'global.json')
-    Write-Host "global.json: $(Get-Content (Join-Path $WorkDir 'global.json') -Raw)"
+    Write-ConsumerGlobalJson $WorkDir
 
     Push-Location $WorkDir
     try {

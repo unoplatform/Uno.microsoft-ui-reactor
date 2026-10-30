@@ -6,7 +6,7 @@
     the WinAppSDK-tuned root Directory.Build.props (which imports
     Reactor.targets). MSBuild stops walking up at the first match, so this
     file stops that inheritance — the samples build against the Uno.Sdk pinned
-    in this folder's global.json, with Central Package Management OFF
+    in the repo-root global.json, with Central Package Management OFF
     (Directory.Packages.props) and the isolated nuget.config alongside.
     Intentionally does NOT chain to the parent.
   -->
