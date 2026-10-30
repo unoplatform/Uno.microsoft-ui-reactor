@@ -60,10 +60,13 @@ internal static class UnoBootstrap
 
 #if __WASM__
         builder = builder.UseWebAssembly();
-#elif __IOS__ || __MACCATALYST__ || __TVOS__
+#elif __IOS__
         // Apple heads DO start from a real Main, and Uno gives them the same
         // host-builder shape as desktop — so ReactorApp.Run works there
-        // unchanged, with UIKit as the platform provider.
+        // unchanged, with UIKit as the platform provider. Only net10.0-ios is
+        // targeted: Mac Catalyst (which also defines __IOS__) and tvOS are out of
+        // scope, but would take this same provider, so enabling either is a TFM
+        // and package reference, plus __TVOS__ here for tvOS.
         builder = builder.UseAppleUIKit();
 #elif __ANDROID__
         // Android has no console entry point: the OS instantiates the head's
