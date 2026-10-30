@@ -8,8 +8,8 @@
 .DESCRIPTION
     Copies the sample's Counter.cs to -WorkDir and turns it into the readme's form, so the sample stays
     the one source for both: drops the `#:project` line, adds `Reactor` to `UnoFeatures`, and
-    takes the `#:sdk Uno.Sdk@<version>` line from the readme (the sample's own Uno.Sdk may
-    predate the feature). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
+    pins the Uno.Sdk to the readme's `#:sdk Uno.Sdk@<version>` (the sample's `#:sdk Uno.Sdk` takes
+    its version from samples/Uno/global.json, which a folder outside the repo doesn't have). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
     version, points the feature at the package under test instead of the one the Uno.Sdk pins.
     Restores from -Feed (only that package; everything else from nuget.org) into a private
     NUGET_PACKAGES, so a package already in the global cache can't stand in for the one under
@@ -43,11 +43,11 @@ $WorkDir = $consumer.WorkDir
 $sdkLine = "#:sdk Uno.Sdk@$(Get-ReadmeUnoSdkVersion)"
 $source = Get-Content (Join-Path $PSScriptRoot '../../../samples/Uno/file-based/Counter.cs') -Raw
 $null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
-$null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)' '#:sdk Uno.Sdk line in Counter.cs'
+$null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Uno.Sdk line in Counter.cs'
 $features = Get-OneMatch $source '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)' 'UnoFeatures line in Counter.cs'
 if ($features.Groups[1].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'Counter.cs already has the Reactor feature' }
 $source = [regex]::Replace($source, '(?m)^#:project .*\r?\n', '')
-$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk@\S+(?=\r?$)', "$sdkLine`n#:property UnoReactorVersion=$Version")
+$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk(?=\r?$)',"$sdkLine`n#:property UnoReactorVersion=$Version")
 $source = [regex]::Replace($source, '(?m)^(#:property UnoFeatures=[^\r\n]*)(?=\r?$)', '$1;Reactor')
 $app = Join-Path $WorkDir 'Counter.cs'
 Set-Content $app $source -NoNewline
