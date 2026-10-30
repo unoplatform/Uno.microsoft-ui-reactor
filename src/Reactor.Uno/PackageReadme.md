@@ -70,7 +70,12 @@ class CounterApp : Component
 }
 ```
 
-The `#:sdk` line takes the Uno.Sdk version, and with it the Reactor version, from the nearest `global.json` in the file's folder or above. To keep the file on its own instead, name the version on the line: `#:sdk Uno.Sdk@x.y.z`. Single-file apps run on desktop only for now.
+The `#:sdk` line takes the Uno.Sdk version, and with it the Reactor version, from the nearest `global.json` in the file's folder or above. To keep the file on its own instead, name the version on the line: `#:sdk Uno.Sdk@x.y.z`.
+
+The same file runs on WebAssembly and Android: change its `TargetFramework` line and keep the rest.
+
+- WebAssembly: `#:property TargetFramework=net10.0-browserwasm`. `dotnet run Counter.cs` then prints a localhost URL to open.
+- Android: `#:property TargetFramework=net10.0-android`. With a device or emulator connected, `dotnet run Counter.cs` installs the app, starts it, and streams its logcat.
 
 ## In an existing Uno project
 
