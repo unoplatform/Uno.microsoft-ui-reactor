@@ -9,7 +9,7 @@
     Copies the sample's Counter.cs to -WorkDir and turns it into the readme's form, so the sample stays
     the one source for both: drops the `#:project` line, adds `Reactor` to `UnoFeatures`, and
     pins the Uno.Sdk to the readme's `#:sdk Uno.Sdk@<version>` (the sample's `#:sdk Uno.Sdk` takes
-    its version from samples/Uno/global.json, which a folder outside the repo doesn't have). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
+    its version from the repo-root global.json, which a folder outside the repo doesn't have). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
     version, points the feature at the package under test instead of the one the Uno.Sdk pins.
     Restores from -Feed (only that package; everything else from nuget.org) into a private
     NUGET_PACKAGES, so a package already in the global cache can't stand in for the one under
