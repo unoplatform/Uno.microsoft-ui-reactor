@@ -24,7 +24,7 @@ README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-fr
 
 ## Prerequisites
 
-- **.NET 10 SDK** (`10.0.400`+ — see [`global.json`](global.json)). Reactor's
+- **.NET 10 SDK** (`10.0.400`+ — see [`global.json`](../../global.json)). Reactor's
   source generators build against Roslyn 5.9, which older SDKs can't load: the
   compiler drops them (`CS9057`) and the build fails with a wall of `CS0759`.
 - **[uno-check](https://platform.uno/docs/articles/external/uno.check/doc/using-uno-check.html)**
@@ -39,7 +39,7 @@ README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-fr
 
 iOS compiles on Windows; deploying to a device still needs a Mac.
 
-The Uno projects resolve `Uno.Sdk` from the nearby `global.json` and restore from
+The Uno projects resolve `Uno.Sdk` from the repo-root `global.json` and restore from
 `nuget.org` only (see [`nuget.config`](nuget.config)); they do **not** inherit the
 repo-root Windows/WinAppSDK build infrastructure.
 
@@ -156,7 +156,7 @@ first page on the simulator.
 ### file-based/Counter.cs
 
 A single-file app — no project, no `.csproj`. Like the projects above, it takes
-its Uno.Sdk version from [`global.json`](global.json) (its `#:sdk Uno.Sdk` line
+its Uno.Sdk version from [`global.json`](../../global.json) (its `#:sdk Uno.Sdk` line
 names no version). Unlike them, its root component must **not** be named `App`,
 as the port README's
 [Known limitations / notes](../../src/Reactor.Uno/README.md#known-limitations--notes)

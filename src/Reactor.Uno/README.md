@@ -119,7 +119,7 @@ dotnet run Counter.cs
 ```
 
 The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk`
-takes its version from [`samples/Uno/global.json`](../../samples/Uno/global.json),
+takes its version from the repo-root [`global.json`](../../global.json),
 the one nearest the file. Outside the repo, delete the `#:project` line,
 pin `#:sdk Uno.Sdk@7.0.0-dev.104` or later (or keep it bare next to a
 `global.json` that pins one), and add `Reactor` to the `UnoFeatures`
@@ -198,13 +198,12 @@ src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
     ReactorHost.cs          # the render loop (reconcile → Window.Content → effects)
     Windowing.cs            # minimal ReactorWindow + windowing types for the shared hooks
-  global.json               # pins Uno.Sdk 7.0.0-dev.113
   nuget.config              # nuget.org (self-contained restore)
   Directory.Build.props     # stops inheritance of the repo-root Windows build infra
   Directory.Packages.props  # CPM off for this project
 
 samples/Uno/                # Uno samples — one shared isolation set for all three
-  global.json · nuget.config · Directory.Build.props · Directory.Packages.props
+  nuget.config · Directory.Build.props · Directory.Packages.props
   ReactorUnoCounter/        # normal Uno single-project app (desktop + wasm)
   ReactorUnoShowcase/       # larger showcase app
   file-based/Counter.cs     # the single-file app
@@ -305,7 +304,7 @@ entry when you find a way to do without it:
 | File | Change | Why it isn't in our paths |
 |---|---|---|
 | `README.md` | An Uno Platform section at the top | GitHub shows the root README on the fork's front page. |
-| `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | `Reactor.Uno.slnx` sits at the root, so building it resolves SDKs from the root `global.json`; the ones under `src/Reactor.Uno/` and `samples/Uno/` are read only by builds started in those folders. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
+| `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | It's the port's only Uno.Sdk pin: `Reactor.Uno.slnx` sits at the root, and every Uno project and `Counter.cs` below it reads this file too. A second `global.json` under the port would win for builds started inside it and could drift from this one. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
 | `src/Reactor/Core/Reconciler.Mount.cs` | `return null` → `return default` in a generic helper | Satisfies Uno's nullable analysis. Behaves the same on Windows, since `T` is constrained to a reference type. |
 
 The shared source has no `#if REACTOR_UNO` blocks. A guard around
@@ -480,8 +479,8 @@ to run (`--non-interactive` stops instead).
 
 - **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
   the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release —
-  `Uno.Sdk 7.0.0-dev.113`, set in `global.json` (repo root, `src/Reactor.Uno/`,
-  `samples/Uno/`; the file-based `Counter.cs` reads the last one). Uno 7.0 renamed the runtime
+  `Uno.Sdk 7.0.0-dev.113`, set in the repo-root `global.json` (the projects and the
+  file-based `Counter.cs` all read it). Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK
