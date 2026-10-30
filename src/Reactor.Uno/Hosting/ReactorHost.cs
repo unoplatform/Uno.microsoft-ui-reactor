@@ -107,6 +107,11 @@ public sealed class ReactorHost : IDisposable
     internal Component? RootComponent => _rootComponent;
     internal UIElement? CurrentControl => _currentControl;
 
+    // The handler for this host's render errors (issue #1291). Uno has no per-window or
+    // per-host handler, so the app-wide default is the one that applies. Read at error
+    // time, so a handler set or cleared later takes effect.
+    private static RenderErrorHandler? EffectiveRenderErrorHandler => RenderErrorDispatch.Resolve(null);
+
     public ReactorHost(Window window, ILogger? logger = null)
     {
         _logger = logger ?? ReactorApp.AppLogger;
@@ -311,6 +316,11 @@ public sealed class ReactorHost : IDisposable
             RequestRender();
         }
 
+        // Which phase the outer catch attributes a failure to (issue #1291).
+        var failurePhase = RenderErrorSource.Reconcile;
+        // The root whose effects are being flushed, captured before app code runs: an effect
+        // can Mount() a replacement root and then throw, and the failure is the original's.
+        Component? effectsRoot = null;
         try
         {
             Element? newTree = null;
@@ -318,10 +328,12 @@ public sealed class ReactorHost : IDisposable
 
             Action rerender = () => RequestRender();
 
-            if (_rootComponent is not null)
+            // Captured before app code runs: the root's Render() can Mount() a replacement
+            // root and then throw, and the failure belongs to the component that threw.
+            if (_rootComponent is { } renderingRoot)
             {
-                _rootComponent.Context.BeginRender(rerender);
-                try { newTree = _rootComponent.Render(); }
+                renderingRoot.Context.BeginRender(rerender);
+                try { newTree = renderingRoot.Render(); }
                 catch (HookOrderException ex) when (hotReloadRender)
                 {
                     // An edit that adds/removes/reorders hooks changes the hook
@@ -329,13 +341,13 @@ public sealed class ReactorHost : IDisposable
                     // an expected consequence of the edit, not a user bug: drop
                     // the hook state and re-mount rather than falling through to
                     // the error overlay.
-                    RecoverFromHookOrder(ex, _rootComponent.Context, "component");
+                    RecoverFromHookOrder(ex, renderingRoot.Context, "component");
                     return;
                 }
                 catch (Exception ex) when (!RenderErrorDispatch.IsPropagating(ex))
                 {
                     _logger?.LogError(ex, "Component Render() threw");
-                    ShowErrorFallback(ex);
+                    ShowErrorFallback(ex, RenderErrorSource.RootRender, renderingRoot.GetType().Name);
                     return;
                 }
             }
@@ -351,7 +363,7 @@ public sealed class ReactorHost : IDisposable
                 catch (Exception ex) when (!RenderErrorDispatch.IsPropagating(ex))
                 {
                     _logger?.LogError(ex, "Function component threw");
-                    ShowErrorFallback(ex);
+                    ShowErrorFallback(ex, RenderErrorSource.RootRender);
                     return;
                 }
             }
@@ -422,10 +434,13 @@ public sealed class ReactorHost : IDisposable
             double reconcileMs = _phaseSw.Elapsed.TotalMilliseconds;
             _phaseSw.Restart();
 
-            if (_rootComponent is not null)
-                _rootComponent.Context.FlushEffects();
+            failurePhase = RenderErrorSource.Effects;
+            effectsRoot = _rootComponent;
+            if (effectsRoot is not null)
+                effectsRoot.Context.FlushEffects();
             else
                 _funcContext?.FlushEffects();
+            failurePhase = RenderErrorSource.Reconcile;
 
             double effectsMs = _phaseSw.Elapsed.TotalMilliseconds;
 
@@ -435,7 +450,8 @@ public sealed class ReactorHost : IDisposable
         catch (Exception ex) when (!RenderErrorDispatch.IsPropagating(ex))
         {
             _logger?.LogError(ex, "Render FAILED");
-            ShowErrorFallback(ex);
+            ShowErrorFallback(ex, failurePhase,
+                failurePhase == RenderErrorSource.Effects ? effectsRoot?.GetType().Name : null);
         }
         finally
         {
@@ -603,10 +619,26 @@ public sealed class ReactorHost : IDisposable
             _themeListenerElement = null;
         });
 
-        _rootComponent?.Context.RunCleanups();
-        _funcContext?.RunCleanups();
+        // Issue #1291, as in the Windows host: with a RenderErrorHandler configured, every
+        // cleanup runs and each failure is reported (Source = Cleanup); a requested, unhandled
+        // propagation is rethrown once disposal has finished. With no handler they escape as
+        // before. The root's and the reconciler's cleanups share one propagation scope, so
+        // only the first propagated failure is rethrown.
+        global::System.Runtime.ExceptionServices.ExceptionDispatchInfo? pendingPropagation = null;
+        // Resolved per failure (a cleanup may change the handler), not once per batch.
+        Func<RenderErrorHandler?> cleanupHandler = static () => EffectiveRenderErrorHandler;
+        using (RenderErrorDispatch.EnterPropagationScope())
+        {
+            RenderErrorDispatch.RunCleanups(_rootComponent?.Context, cleanupHandler, _rootComponent?.GetType().Name,
+                isHostLevel: true, _logger, ref pendingPropagation);
+            RenderErrorDispatch.RunCleanups(_funcContext, cleanupHandler, componentName: null,
+                isHostLevel: true, _logger, ref pendingPropagation);
 
-        _reconciler.Dispose();
+            // Always dispose the reconciler (it runs every child cleanup), even when a root
+            // cleanup already holds the propagation; only then keep the first propagation.
+            var reconcilerPropagation = _reconciler.DisposeCollectingPropagation();
+            pendingPropagation ??= reconcilerPropagation;
+        }
         _rootComponent = null;
         _rootRenderFunc = null;
         _funcContext = null;
@@ -615,16 +647,69 @@ public sealed class ReactorHost : IDisposable
 
         if (ReferenceEquals(ReactorApp.ActiveHostInternal, this))
             ReactorApp.ActiveHostInternal = null;
+        pendingPropagation?.Throw();
     }
 
-    private void ShowErrorFallback(Exception ex)
+    private void ShowErrorFallback(Exception ex, RenderErrorSource source, string? componentName = null)
     {
-        var errorPanel = Microsoft.UI.Reactor.Core.ErrorFallback.BuildPanel(ex);
+        // Issue #1291, as in the Windows host — the app's handler may replace the built-in
+        // panel, or ask to propagate.
+        var error = new RenderError(ex, source, componentName, isHostLevel: true);
+        Action rerender = () => RequestRender();
+        // Replacing or releasing the old tree must finish even when one of its cleanups
+        // throws: the host forgets that tree afterwards, so anything left registered would
+        // stay alive. Every cleanup runs; failures are collected and reported below.
+        var teardownErrors = new RenderErrorDispatch.TeardownErrors(_logger);
+        var (content, tree, propagate, replacesTree) = RenderErrorDispatch.BuildHostFallback(
+            EffectiveRenderErrorHandler, error, _logger,
+            install: element =>
+            {
+                using (_reconciler.IsolateUnmountCleanupFailures(teardownErrors.Add))
+                    return _reconciler.Reconcile(_currentTree, element, _currentControl, rerender);
+            },
+            releaseCurrent: () =>
+            {
+                if (_currentTree is null) return;
+                using (_reconciler.IsolateUnmountCleanupFailures(teardownErrors.Add))
+                    _reconciler.Reconcile(_currentTree, null, _currentControl, rerender);
+            },
+            currentIsAppFallback: RenderErrorDispatch.IsAppFallback(_currentTree));
+        SetErrorContent(content, tree, replacesTree);
+        teardownErrors.RethrowPropagated();
+        // Nothing is shown where the failure happened. Returns only when the app's
+        // unhandled-exception callback handled it; otherwise rethrows.
+        if (propagate)
+            RenderErrorDispatch.RaiseUnhandled(ex);
+    }
+
+    // Installs the error content. A handler-supplied fallback is kept as the current tree
+    // so the next successful render reconciles away from it (running its cleanups); the
+    // built-in panel is a raw control, so the tree is cleared and the next render mounts fresh.
+    private void SetErrorContent(UIElement? errorPanel, Element? errorTree, bool replacesTree)
+    {
         if (ContentTarget is not null)
+        {
             ContentTarget.Child = errorPanel;
+            if (replacesTree)
+                OwningWindow?.OnContentAttached(errorPanel);
+        }
         else
-            EnsureWindowRoot().Child = errorPanel;
+        {
+            var root = EnsureWindowRoot();
+            root.Child = errorPanel;
+            if (replacesTree)
+            {
+                OwningWindow?.OnContentAttached(root);
+                SyncWindowRootTheme(errorPanel);
+            }
+        }
         _currentControl = errorPanel;
-        _currentTree = null;
+        _currentTree = errorTree;
+        // When the handler's outcome replaced (and released) the tree, the theme listener
+        // moves to the new content like any content swap, or is detached when there is none,
+        // so it neither pins the released root nor misses a ThemeRef-bound app fallback. The
+        // no-handler built-in panel keeps the earlier behavior.
+        if (replacesTree)
+            AttachThemeListener(errorPanel);
     }
 }
