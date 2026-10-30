@@ -491,10 +491,9 @@ to run (`--non-interactive` stops instead).
 
 ## Known limitations / notes
 
-- **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
-  the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release
-  pinned in the repo-root `global.json`, which the projects and the file-based
-  `Counter.cs` all read. Uno 7.0 renamed the runtime
+- **Uno version.** The port needs Uno **6.7+** APIs (the `TitleBar` drag-region APIs)
+  and tracks the Uno **7.0** pre-release pinned in the repo-root `global.json`,
+  which the projects and the file-based `Counter.cs` all read. Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK
