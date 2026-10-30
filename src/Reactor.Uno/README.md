@@ -76,7 +76,7 @@ post, but cross-platform. The whole app is one `.cs` file
 ([`samples/Uno/file-based/Counter.cs`](../../samples/Uno/file-based/Counter.cs)):
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.113
+#:sdk Uno.Sdk
 #:project ../../../src/Reactor.Uno/Reactor.Uno.csproj
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
@@ -118,8 +118,11 @@ cd samples/Uno/file-based
 dotnet run Counter.cs
 ```
 
-The `#:project` line builds the port from this repo. Outside it, delete that line,
-pin `#:sdk Uno.Sdk@7.0.0-dev.104` or later, and add `Reactor` to the `UnoFeatures`
+The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk`
+takes its version from [`samples/Uno/global.json`](../../samples/Uno/global.json),
+the one nearest the file. Outside the repo, delete the `#:project` line,
+pin `#:sdk Uno.Sdk@7.0.0-dev.104` or later (or keep it bare next to a
+`global.json` that pins one), and add `Reactor` to the `UnoFeatures`
 line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 [package readme](PackageReadme.md#a-single-file-app) shows.
 
@@ -478,7 +481,7 @@ to run (`--non-interactive` stops instead).
 - **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
   the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release —
   `Uno.Sdk 7.0.0-dev.113`, set in `global.json` (repo root, `src/Reactor.Uno/`,
-  `samples/Uno/`, and the file-based `Counter.cs` header). Uno 7.0 renamed the runtime
+  `samples/Uno/`; the file-based `Counter.cs` reads the last one). Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK

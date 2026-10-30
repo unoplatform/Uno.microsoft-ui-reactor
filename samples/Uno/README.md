@@ -155,11 +155,12 @@ first page on the simulator.
 
 ### file-based/Counter.cs
 
-A single-file app — no project, no `.csproj`. Two things differ from the projects
-above: its root component must **not** be named `App`, and its `#:sdk` line pins
-the Uno.Sdk version itself instead of reading `global.json`. Both are explained in
-the port README's
-[Known limitations / notes](../../src/Reactor.Uno/README.md#known-limitations--notes).
+A single-file app — no project, no `.csproj`. Like the projects above, it takes
+its Uno.Sdk version from [`global.json`](global.json) (its `#:sdk Uno.Sdk` line
+names no version). Unlike them, its root component must **not** be named `App`,
+as the port README's
+[Known limitations / notes](../../src/Reactor.Uno/README.md#known-limitations--notes)
+explains.
 
 ```bash
 cd samples/Uno/file-based
