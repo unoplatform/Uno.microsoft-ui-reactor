@@ -4,7 +4,7 @@ name: CI (Uno) - consume the package
 # workflow run, so it can download the run's `NuGet` artifact.
 #
 # Each job takes a sample out of the repo the way the docs tell a consumer to: Reactor from the
-# `Reactor` UnoFeature on the Uno.Sdk the package readme pins, with `UnoReactorVersion=<version>` so
+# `Reactor` UnoFeature on the Uno.Sdk the repo-root global.json pins, with `UnoReactorVersion=<version>` so
 # the feature takes the packed package, restored into a private NUGET_PACKAGES in a folder outside
 # the checkout. The repo build (build-uno, build-mobile) compiles every head from source; these
 # jobs are what uses each of the package's lib/ folders.
@@ -42,7 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # src/Reactor.Uno for PackageReadme.md, which the script takes the #:sdk line from.
+          # Cone mode also brings the files at the repo root (global.json, which pins the Uno.Sdk).
+          # src/Reactor.Uno for PackageReadme.md, whose #:sdk line the script checks.
           sparse-checkout: |
             .github/scripts/uno
             samples/Uno/file-based
@@ -98,11 +99,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Cone mode also brings the files at the repo root (global.json, which pins the Uno.Sdk).
-          # src/Reactor.Uno for PackageReadme.md, which pins the Uno.Sdk.
           sparse-checkout: |
             .github/scripts/uno
             samples/Uno/ReactorUnoCounter
-            src/Reactor.Uno
 
       - name: Download packages
         uses: actions/download-artifact@v4
