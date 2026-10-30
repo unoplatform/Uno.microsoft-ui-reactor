@@ -65,7 +65,8 @@ version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
 
 To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
-and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with. The
+and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with, in its
+`global.json` (or in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The
 feature first shipped in Uno.Sdk `7.0.0-dev.97`; an older Uno.Sdk ignores it
 silently, and the build fails with `CS0234` on `Microsoft.UI.Reactor`.
 
@@ -121,9 +122,9 @@ dotnet run Counter.cs
 The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk`
 takes its version from the repo-root [`global.json`](../../global.json),
 the one nearest the file. Outside the repo, delete the `#:project` line,
-pin `#:sdk Uno.Sdk@7.0.0-dev.104` or later (or keep it bare next to a
-`global.json` that pins one), and add `Reactor` to the `UnoFeatures`
-line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
+put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.104` or later
+(or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add `Reactor` to
+the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 [package readme](PackageReadme.md#a-single-file-app) shows.
 
 > **Versus the WinUI version.** The WinUI file-based app uses
@@ -478,9 +479,9 @@ to run (`--non-interactive` stops instead).
 ## Known limitations / notes
 
 - **Uno version.** The port needs Uno **6.7+** APIs (`DispatcherQueueSynchronizationContext`,
-  the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release —
-  `Uno.Sdk 7.0.0-dev.113`, set in the repo-root `global.json` (the projects and the
-  file-based `Counter.cs` all read it). Uno 7.0 renamed the runtime
+  the `TitleBar` drag-region APIs) and tracks the Uno **7.0** pre-release
+  pinned in the repo-root `global.json`, which the projects and the file-based
+  `Counter.cs` all read. Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK
