@@ -64,11 +64,15 @@ function Get-OneMatch([string]$Text, [string]$Pattern, [string]$What) {
     $found[0]
 }
 
-# The Uno.Sdk version the package readme (src/Reactor.Uno/PackageReadme.md) pins in its
-# single-file app's `#:sdk` line: the first one with the `Reactor` UnoFeature that the docs name.
-function Get-ReadmeUnoSdkVersion {
-    $readme = Get-Content (Join-Path $PSScriptRoot '../../../src/Reactor.Uno/PackageReadme.md') -Raw
-    (Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk@(\S+)(?=\r?$)' '#:sdk Uno.Sdk line in PackageReadme.md').Groups[1].Value
+# Writes -WorkDir's global.json with the repo-root one's .NET SDK and Uno.Sdk pins, as the readmes
+# tell a consumer to: the samples' `Sdk="Uno.Sdk"` and `#:sdk Uno.Sdk` name no version.
+function Write-ConsumerGlobalJson([string]$WorkDir) {
+    $root = Get-Content (Join-Path $PSScriptRoot '../../../global.json') -Raw | ConvertFrom-Json
+    if (-not $root.'msbuild-sdks'.'Uno.Sdk') { throw 'The repo-root global.json pins no Uno.Sdk' }
+    $path = Join-Path $WorkDir 'global.json'
+    [ordered]@{ sdk = $root.sdk; 'msbuild-sdks' = [ordered]@{ 'Uno.Sdk' = $root.'msbuild-sdks'.'Uno.Sdk' } } |
+        ConvertTo-Json -Depth 5 | Set-Content $path
+    Write-Host "global.json: $(Get-Content $path -Raw)"
 }
 
 # Fails unless the build restored the package under test from -Feed (and not, say, from nuget.org).
@@ -80,4 +84,4 @@ function Assert-RestoredFromFeed([string]$Feed, [string]$Version) {
     Write-Host "Restored $packageId $Version from $restoredFrom"
 }
 
-Export-ModuleMember -Function Initialize-ConsumerFolder, Get-OneMatch, Get-ReadmeUnoSdkVersion, Assert-RestoredFromFeed
+Export-ModuleMember -Function Initialize-ConsumerFolder, Get-OneMatch, Write-ConsumerGlobalJson, Assert-RestoredFromFeed

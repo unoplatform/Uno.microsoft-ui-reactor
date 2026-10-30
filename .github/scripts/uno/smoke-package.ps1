@@ -8,8 +8,9 @@
 .DESCRIPTION
     Copies the sample's Counter.cs to -WorkDir and turns it into the readme's form, so the sample stays
     the one source for both: drops the `#:project` line, adds `Reactor` to `UnoFeatures`, and
-    pins the Uno.Sdk to the readme's `#:sdk Uno.Sdk@<version>` (the sample's `#:sdk Uno.Sdk` takes
-    its version from the repo-root global.json, which a folder outside the repo doesn't have). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
+    writes the global.json the readme puts next to it, with the repo root's Uno.Sdk pin (the
+    `#:sdk Uno.Sdk` line names no version, in the sample and the readme alike; it fails if either
+    gets one). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
     version, points the feature at the package under test instead of the one the Uno.Sdk pins.
     Restores from -Feed (only that package; everything else from nuget.org) into a private
     NUGET_PACKAGES, so a package already in the global cache can't stand in for the one under
@@ -40,19 +41,21 @@ $Feed = $consumer.Feed
 $WorkDir = $consumer.WorkDir
 
 # The package readme's form of the sample.
-$sdkLine = "#:sdk Uno.Sdk@$(Get-ReadmeUnoSdkVersion)"
+$readme = Get-Content (Join-Path $PSScriptRoot '../../../src/Reactor.Uno/PackageReadme.md') -Raw
+$null = Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Uno.Sdk line in PackageReadme.md'
 $source = Get-Content (Join-Path $PSScriptRoot '../../../samples/Uno/file-based/Counter.cs') -Raw
 $null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
 $null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Uno.Sdk line in Counter.cs'
 $features = Get-OneMatch $source '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)' 'UnoFeatures line in Counter.cs'
 if ($features.Groups[1].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'Counter.cs already has the Reactor feature' }
 $source = [regex]::Replace($source, '(?m)^#:project .*\r?\n', '')
-$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk(?=\r?$)',"$sdkLine`n#:property UnoReactorVersion=$Version")
+$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk(?=\r?$)', "`$0`n#:property UnoReactorVersion=$Version")
 $source = [regex]::Replace($source, '(?m)^(#:property UnoFeatures=[^\r\n]*)(?=\r?$)', '$1;Reactor')
 $app = Join-Path $WorkDir 'Counter.cs'
 Set-Content $app $source -NoNewline
 Write-Host "Counter.cs header:"
 Get-Content $app | Where-Object { $_ -like '#:*' } | ForEach-Object { Write-Host "  $_" }
+Write-ConsumerGlobalJson $WorkDir
 
 Push-Location $WorkDir
 try {

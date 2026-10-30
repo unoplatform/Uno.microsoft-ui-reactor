@@ -26,10 +26,20 @@ The app targets desktop, WebAssembly, Android and iOS. Pick fewer with `-platfor
 
 ## A single-file app
 
-Save this as `Counter.cs` and run `dotnet run Counter.cs`:
+Save this as `Counter.cs`, next to a `global.json` that names the Uno.Sdk version:
+
+```json
+{
+  "msbuild-sdks": {
+    "Uno.Sdk": "x.y.z"
+  }
+}
+```
+
+and run `dotnet run Counter.cs`:
 
 ```csharp
-#:sdk Uno.Sdk@7.0.0-dev.113
+#:sdk Uno.Sdk
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
@@ -60,7 +70,7 @@ class CounterApp : Component
 }
 ```
 
-The `#:sdk` line pins the Uno.Sdk, and with it the Reactor version: a lone file has no `global.json` to do it. Single-file apps run on desktop only for now.
+The `#:sdk` line takes the Uno.Sdk version, and with it the Reactor version, from the nearest `global.json` in the file's folder or above. To keep the file on its own instead, name the version on the line: `#:sdk Uno.Sdk@x.y.z`. Single-file apps run on desktop only for now.
 
 ## In an existing Uno project
 
@@ -73,7 +83,7 @@ Add `Reactor` to `UnoFeatures` in a single Uno project that uses the Skia render
 </UnoFeatures>
 ```
 
-Pin Uno.Sdk `7.0.0-dev.104` or later in its `global.json`. The feature first shipped in `7.0.0-dev.97`; an Uno.Sdk older than that ignores it without a warning, and the build then fails with `CS0234` on `Microsoft.UI.Reactor`.
+Pin Uno.Sdk `7.0.0-dev.104` or later in its `global.json`, which `<Project Sdk="Uno.Sdk">` reads (or name it in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in `7.0.0-dev.97`; an Uno.Sdk older than that ignores it without a warning, and the build then fails with `CS0234` on `Microsoft.UI.Reactor`.
 
 Remove the Windows target framework (`net10.0-windows10.0.x`) from the project: with `Reactor` in `UnoFeatures`, that target fails with `UNOB0031`, since this package doesn't target the Windows App SDK.
 
