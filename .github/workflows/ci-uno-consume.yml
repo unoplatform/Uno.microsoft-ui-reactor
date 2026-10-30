@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Cone mode also brings the files directly under samples/Uno (global.json).
+          # Cone mode also brings the files at the repo root (global.json, which pins the Uno.Sdk).
           # src/Reactor.Uno for PackageReadme.md, which pins the Uno.Sdk.
           sparse-checkout: |
             .github/scripts/uno

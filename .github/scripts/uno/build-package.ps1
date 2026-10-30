@@ -7,7 +7,7 @@
 
 .DESCRIPTION
     Copies the counter project to -WorkDir and makes the readme's changes: drops the ProjectReference to
-    src/Reactor.Uno, adds `Reactor` to `UnoFeatures`, and writes a global.json (samples/Uno's, with
+    src/Reactor.Uno, adds `Reactor` to `UnoFeatures`, and writes a global.json (the repo root's, with
     the Uno.Sdk the package readme pins; the repo's own Uno.Sdk may predate the feature).
     `UnoReactorVersion=<Version>` points the feature at the package under test instead of the one
     the Uno.Sdk pins. Restores from -Feed (only that package; everything else from nuget.org) into
@@ -32,7 +32,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'package-consumer.psm1') -Force
-$samples = Join-Path $PSScriptRoot '../../../samples/Uno'
+$repoRoot = Join-Path $PSScriptRoot '../../..'
+$samples = Join-Path $repoRoot 'samples/Uno'
 
 try {
     $consumer = Initialize-ConsumerFolder $Feed $Version $WorkDir
@@ -64,7 +65,7 @@ try {
     Write-Host 'ReactorUnoCounter.csproj:'
     Get-Content $csprojPath | ForEach-Object { Write-Host "  $_" }
 
-    $globalJson = Get-Content (Join-Path $samples 'global.json') -Raw | ConvertFrom-Json
+    $globalJson = Get-Content (Join-Path $repoRoot 'global.json') -Raw | ConvertFrom-Json
     $globalJson.'msbuild-sdks'.'Uno.Sdk' = Get-ReadmeUnoSdkVersion
     $globalJson | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $WorkDir 'global.json')
     Write-Host "global.json: $(Get-Content (Join-Path $WorkDir 'global.json') -Raw)"
