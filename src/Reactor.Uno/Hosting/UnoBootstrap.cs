@@ -30,7 +30,7 @@ internal static class UnoBootstrap
         // run loop never completes. Nobody awaits the task, so report its faults here
         // or they are lost.
         RunAsync().ContinueWith(
-            static t => ReportStartupFailure(t.Exception!.GetBaseException()),
+            static t => { ReportStartupFailure(t.Exception!.GetBaseException()); },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
@@ -49,22 +49,24 @@ internal static class UnoBootstrap
     /// Offers a failed start to <see cref="ReactorApp.OnUnhandledException"/>. If the app
     /// doesn't handle it, prints it and, outside the browser, ends the app.
     /// </summary>
-    internal static void ReportStartupFailure(Exception ex)
+    /// <returns>Whether the app handled it.</returns>
+    internal static bool ReportStartupFailure(Exception ex)
     {
         // A render error the app propagated (RenderError.Propagate) was already offered
         // to OnUnhandledException, which declined it; don't ask twice.
         if (!Microsoft.UI.Reactor.Core.RenderErrorDispatch.TryConsumeDeclined(ex) && ReactorApplication.ReportUnhandled(ex))
-            return;
+            return true;
 
         Console.Error.WriteLine($"Reactor app failed to start: {ex}");
 #if !__WASM__
         // What a crash would have done; a rethrow could be swallowed by the head again.
         EndFailedLaunch(exitCode: 1);
 #endif
+        return false;
     }
 
 #if !__WASM__
-    private static void EndFailedLaunch(int exitCode)
+    internal static void EndFailedLaunch(int exitCode)
     {
 #if __ANDROID__
         // Ending the process isn't an exit on Android: the system restarts the activity
@@ -152,7 +154,13 @@ internal sealed class ReactorApplication : Application
         }
         catch (Exception ex)
         {
-            UnoBootstrap.ReportStartupFailure(ex);
+            bool handled = UnoBootstrap.ReportStartupFailure(ex);
+#if !__WASM__
+            // Like the Windows host's ExitIfStartupOpenedNoSurface: a handled failure that
+            // left no window doesn't keep a process running with nothing on screen.
+            if (handled && ReactorApp.Windows.Count == 0)
+                UnoBootstrap.EndFailedLaunch(exitCode: 0);
+#endif
         }
     }
 
