@@ -107,6 +107,11 @@ public sealed class ReactorHost : IDisposable
     internal Component? RootComponent => _rootComponent;
     internal UIElement? CurrentControl => _currentControl;
 
+    // The handler for this host's render errors (issue #1291). Uno has no per-window or
+    // per-host handler, so the app-wide default is the one that applies. Read at error
+    // time, so a handler set or cleared later takes effect.
+    private static RenderErrorHandler? EffectiveRenderErrorHandler => RenderErrorDispatch.Resolve(null);
+
     public ReactorHost(Window window, ILogger? logger = null)
     {
         _logger = logger ?? ReactorApp.AppLogger;
@@ -614,10 +619,26 @@ public sealed class ReactorHost : IDisposable
             _themeListenerElement = null;
         });
 
-        _rootComponent?.Context.RunCleanups();
-        _funcContext?.RunCleanups();
+        // Issue #1291, as in the Windows host: with a RenderErrorHandler configured, every
+        // cleanup runs and each failure is reported (Source = Cleanup); a requested, unhandled
+        // propagation is rethrown once disposal has finished. With no handler they escape as
+        // before. The root's and the reconciler's cleanups share one propagation scope, so
+        // only the first propagated failure is rethrown.
+        global::System.Runtime.ExceptionServices.ExceptionDispatchInfo? pendingPropagation = null;
+        // Resolved per failure (a cleanup may change the handler), not once per batch.
+        Func<RenderErrorHandler?> cleanupHandler = static () => EffectiveRenderErrorHandler;
+        using (RenderErrorDispatch.EnterPropagationScope())
+        {
+            RenderErrorDispatch.RunCleanups(_rootComponent?.Context, cleanupHandler, _rootComponent?.GetType().Name,
+                isHostLevel: true, _logger, ref pendingPropagation);
+            RenderErrorDispatch.RunCleanups(_funcContext, cleanupHandler, componentName: null,
+                isHostLevel: true, _logger, ref pendingPropagation);
 
-        _reconciler.Dispose();
+            // Always dispose the reconciler (it runs every child cleanup), even when a root
+            // cleanup already holds the propagation; only then keep the first propagation.
+            var reconcilerPropagation = _reconciler.DisposeCollectingPropagation();
+            pendingPropagation ??= reconcilerPropagation;
+        }
         _rootComponent = null;
         _rootRenderFunc = null;
         _funcContext = null;
@@ -626,13 +647,13 @@ public sealed class ReactorHost : IDisposable
 
         if (ReferenceEquals(ReactorApp.ActiveHostInternal, this))
             ReactorApp.ActiveHostInternal = null;
+        pendingPropagation?.Throw();
     }
 
     private void ShowErrorFallback(Exception ex, RenderErrorSource source, string? componentName = null)
     {
         // Issue #1291, as in the Windows host — the app's handler may replace the built-in
-        // panel, or ask to propagate. Uno has no per-window or per-host handler, so the
-        // app-wide default is the one that applies.
+        // panel, or ask to propagate.
         var error = new RenderError(ex, source, componentName, isHostLevel: true);
         Action rerender = () => RequestRender();
         // Replacing or releasing the old tree must finish even when one of its cleanups
@@ -640,7 +661,7 @@ public sealed class ReactorHost : IDisposable
         // stay alive. Every cleanup runs; failures are collected and reported below.
         var teardownErrors = new RenderErrorDispatch.TeardownErrors(_logger);
         var (content, tree, propagate, replacesTree) = RenderErrorDispatch.BuildHostFallback(
-            RenderErrorDispatch.Resolve(null), error, _logger,
+            EffectiveRenderErrorHandler, error, _logger,
             install: element =>
             {
                 using (_reconciler.IsolateUnmountCleanupFailures(teardownErrors.Add))
