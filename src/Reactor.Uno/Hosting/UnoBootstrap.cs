@@ -30,7 +30,7 @@ internal static class UnoBootstrap
         // run loop never completes. Nobody awaits the task, so report its faults here
         // or they are lost.
         RunAsync().ContinueWith(
-            static t => ReportStartupFailure(t.Exception!.GetBaseException()),
+            static t => { ReportStartupFailure(t.Exception!.GetBaseException()); },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
@@ -45,11 +45,40 @@ internal static class UnoBootstrap
 
     public static Task RunAsync() => BuildHost().RunAsync();
 
-#if __WASM__
-    private static void ReportStartupFailure(Exception ex)
+    /// <summary>
+    /// Offers a failed start to <see cref="ReactorApp.OnUnhandledException"/>. If the app
+    /// doesn't handle it, prints it and, outside the browser, ends the app.
+    /// </summary>
+    /// <returns>Whether the app handled it.</returns>
+    internal static bool ReportStartupFailure(Exception ex)
     {
-        if (!ReactorApplication.ReportUnhandled(ex))
-            Console.Error.WriteLine($"Reactor app failed to start: {ex}");
+        // A render error the app propagated (RenderError.Propagate) was already offered
+        // to OnUnhandledException, which declined it; don't ask twice.
+        if (!Microsoft.UI.Reactor.Core.RenderErrorDispatch.TryConsumeDeclined(ex) && ReactorApplication.ReportUnhandled(ex))
+            return true;
+
+        Console.Error.WriteLine($"Reactor app failed to start: {ex}");
+#if !__WASM__
+        // What a crash would have done; a rethrow could be swallowed by the head again.
+        EndFailedLaunch(exitCode: 1);
+#endif
+        return false;
+    }
+
+#if !__WASM__
+    internal static void EndFailedLaunch(int exitCode)
+    {
+#if __ANDROID__
+        // Ending the process isn't an exit on Android: the system restarts the activity
+        // it left on top, which fails to launch again, about once a second. Closing the
+        // app's tasks ends it instead.
+        var activityManager = (global::Android.App.ActivityManager?)global::Android.App.Application.Context
+            .GetSystemService(global::Android.Content.Context.ActivityService);
+        foreach (var task in activityManager?.AppTasks ?? [])
+            task.FinishAndRemoveTask();
+#else
+        Environment.Exit(exitCode);
+#endif
     }
 #endif
 
@@ -109,6 +138,33 @@ internal sealed class ReactorApplication : Application
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        // Uno's heads don't agree on what an exception escaping OnLaunched does. On
+        // WebAssembly and Win32 Uno calls it from a dispatched callback whose catch only
+        // writes to Uno's own logger, which a Reactor app doesn't configure: a throwing
+        // `configure` left a blank page, or a process running with no window, and printed
+        // nothing. Report it here instead, the same way on every head.
+        try
+        {
+            // One dispatch for the whole launch: a render error the app declined during
+            // the first mount keeps its mark until the catch below, instead of losing it
+            // when the failed window's host is disposed.
+            using (Microsoft.UI.Reactor.Core.RenderErrorDispatch.EnterPropagationScope())
+                Launch();
+        }
+        catch (Exception ex)
+        {
+            bool handled = UnoBootstrap.ReportStartupFailure(ex);
+#if !__WASM__
+            // Like the Windows host's ExitIfStartupOpenedNoSurface: a handled failure that
+            // left no window doesn't keep a process running with nothing on screen.
+            if (handled && ReactorApp.Windows.Count == 0)
+                UnoBootstrap.EndFailedLaunch(exitCode: 0);
+#endif
+        }
+    }
+
+    private void Launch()
     {
         // Process-wide unhandled-exception routing. Mirrors the Windows host:
         // log, then let an app-supplied hook decide whether to swallow. Unknown
