@@ -26,6 +26,13 @@
     <!-- Source-shared files guard Windows-only code paths with this symbol. -->
     <DefineConstants>$(DefineConstants);REACTOR_UNO</DefineConstants>
 
+    <!-- CS0436 (a type in source shadows an imported one) is how GlobalizationShims.cs
+         replaces an Uno stub the shared source calls. The warning is reported where the
+         shared source uses the type, not at the shim, so it can only be silenced here,
+         and that silences any other shadowing too: a new type in this project with the
+         same full name as an Uno type wins over it without a word. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+
 
     <!-- The shared source carries AOT/trim annotations; we don't promote them
          to errors in the Uno port. -->

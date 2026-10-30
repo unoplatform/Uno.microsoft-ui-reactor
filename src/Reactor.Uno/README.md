@@ -323,6 +323,12 @@ The shared source has no `#if REACTOR_UNO` blocks. A guard around
 ([unoplatform/uno#23652](https://github.com/unoplatform/uno/issues/23652),
 `Uno.Sdk 6.7.0-dev.117`).
 
+When the shared source calls something Uno doesn't have, or only stubs, this project
+declares a stand-in under the same full name, which the compiler picks over the imported
+one: `WinRTShims.cs` for CsWinRT's attributes, `GlobalizationShims.cs` for
+`Windows.Globalization.Language.IsWellFormed` (Uno's throws `NotImplementedException`).
+Delete a stand-in once Uno implements the real member.
+
 ### Our workflows on this fork
 
 Microsoft's workflows can't be switched off once and for all: GitHub only lists a
