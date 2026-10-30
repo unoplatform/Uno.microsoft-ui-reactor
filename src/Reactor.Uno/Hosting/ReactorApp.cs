@@ -269,7 +269,8 @@ public static partial class ReactorApp
     /// Launches a Reactor app whose root is a <see cref="Component"/> subclass.
     /// Blocks until the window closes (desktop, iOS). On WebAssembly, where the
     /// browser thread can't block, it starts the app and returns, so code after
-    /// the call runs right away there.
+    /// the call runs right away there. On Android it only records the root and
+    /// returns: the Application Reactor adds runs <c>Main</c> and then starts the app.
     /// </summary>
     public static void Run<TRoot>(
         string title = "Reactor App",
@@ -293,7 +294,7 @@ public static partial class ReactorApp
     /// <summary>
     /// Launches a Reactor app from a render function (no Component subclass).
     /// Blocks until the window closes (desktop, iOS); returns once the app has
-    /// started on WebAssembly. See <see cref="Run{TRoot}"/>.
+    /// started on WebAssembly, and right away on Android. See <see cref="Run{TRoot}"/>.
     /// </summary>
     public static void Run(
         string title,
@@ -365,10 +366,11 @@ public static partial class ReactorApp
     /// Builds the Uno host that runs <typeparamref name="TRoot"/>, without running it.
     /// </summary>
     /// <remarks>
-    /// <para>Android does not start from a console <c>Main</c>: the OS instantiates the
-    /// head's <c>NativeApplication</c>, and Uno runs the host its <c>CreateHost</c>
-    /// override returns. <see cref="Run{TRoot}"/> therefore cannot be used there; call
-    /// this from the head instead:</para>
+    /// <para>Not needed by default: Android does not start from <c>Main</c>, but the
+    /// Application Reactor adds runs it, so <see cref="Run{TRoot}"/> works there too.
+    /// This is for an app that sets <c>ReactorAndroidEntry</c> to <c>false</c> to keep
+    /// its own <c>NativeApplication</c>; Uno runs the host its <c>CreateHost</c>
+    /// override returns:</para>
     /// <code>
     /// public class Application : Uno.UI.Runtime.Android.NativeApplication
     /// {

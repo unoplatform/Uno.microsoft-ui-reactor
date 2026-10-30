@@ -9,6 +9,8 @@ name: CI (Uno)
 #
 # The Uno jobs restore Uno.Sdk (from nuget.org, as pinned in global.json) and build Reactor.Uno.slnx
 # for desktop and WebAssembly, plus Android and iOS in a second job because they need extra workloads.
+# The counter's smoke test runs on desktop and WebAssembly in the first job, and on an Android
+# emulator in smoke-android (Linux, from an APK the second job builds).
 # They skip while Reactor.Uno.slnx is not on the branch, so the "Uno CI result" required check still
 # reports on every PR. There is no path filter for the same reason: a required check must always run,
 # and the Uno build must also run when Microsoft's changes are pulled in from `main`.
@@ -160,6 +162,18 @@ jobs:
       - name: Build Android
         run: dotnet build Reactor.Uno.slnx -f net10.0-android -c Debug -bl:artifacts-logs/build-android.binlog
 
+      # The counter again, for the smoke-android job's x86_64 emulator. A Debug APK leaves its
+      # assemblies out (Fast Deployment) unless told to embed them.
+      - name: Build the Android smoke APK
+        run: dotnet build samples/Uno/ReactorUnoCounter/ReactorUnoCounter.csproj -f net10.0-android -c Debug -p:EmbedAssembliesIntoApk=true -p:RuntimeIdentifier=android-x64 -bl:artifacts-logs/build-android-smoke.binlog
+
+      - name: Upload the Android smoke APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke-apk
+          path: samples/Uno/ReactorUnoCounter/bin/Debug/net10.0-android/android-x64/dev.reactor.unocounter-Signed.apk
+          if-no-files-found: error
+
       # Managed compile only -- a device build/deploy needs a Mac, but this keeps
       # the iOS head honest.
       - name: Build iOS
@@ -170,6 +184,47 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: logs-android-ios
+          path: artifacts-logs
+          if-no-files-found: ignore
+
+  # Runtime check of the APK above on an Android emulator: the counter starts from Program.cs,
+  # clicks "+" through its automation peer and checks the re-render, like the desktop and wasm
+  # smoke tests. Linux, because hosted Windows runners can't accelerate an emulator.
+  smoke-android:
+    name: Smoke test Android
+    needs: build-mobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download the Android smoke APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-smoke-apk
+          path: android-smoke-apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke test Android
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: pwsh ./.github/scripts/uno/smoke-android.ps1 -Apk android-smoke-apk/dev.reactor.unocounter-Signed.apk -LogcatPath artifacts-logs/smoke-android-logcat.txt
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-smoke-android
           path: artifacts-logs
           if-no-files-found: ignore
 
@@ -280,7 +335,7 @@ jobs:
   # The single required check for the Uno port. Skipped jobs (no port on the branch yet) pass.
   result:
     name: Uno CI result
-    needs: [detect, build-uno, build-mobile, pack, consume]
+    needs: [detect, build-uno, build-mobile, smoke-android, pack, consume]
     if: always()
     runs-on: ubuntu-latest
     steps:

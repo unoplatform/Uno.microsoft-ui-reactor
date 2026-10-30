@@ -9,7 +9,7 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 | [`ReactorUnoCounter`](ReactorUnoCounter) | Minimal counter — the smallest Reactor-on-Uno app | desktop, wasm, android, ios |
 | [`ReactorUnoShowcase`](ReactorUnoShowcase) | ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, file picker, multi-window (desktop only) | desktop, wasm, android, ios |
 | [`ReactorGalleryUno`](ReactorGalleryUno) | The Reactor gallery, sharing [`samples/ReactorGallery`](../ReactorGallery)'s source; the docking and WebView2 pages are stand-ins | desktop, wasm, android, ios |
-| [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm with [a header change](../../src/Reactor.Uno/README.md#run-on-webassembly-instead) |
+| [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm and Android with a header change ([wasm](../../src/Reactor.Uno/README.md#run-on-webassembly-instead), [Android](../../src/Reactor.Uno/README.md#run-on-android-instead)) |
 
 All three app samples are **single Uno projects targeting all four heads** — the
 `Component` source is identical everywhere; only the entry point differs (see
@@ -68,6 +68,12 @@ It serves the build, opens it with
 `?smoke` in headless Chrome or Edge, and exits with the result the app logs to the
 browser console. It only looks for the browser in the Windows install folders;
 elsewhere, pass `-Browser <path>`.
+For Android, build an APK that carries its assemblies for the emulator's ABI
+(`-f net10.0-android -p:EmbedAssembliesIntoApk=true -p:RuntimeIdentifier=android-x64`), start
+an emulator, and run
+[`.github/scripts/uno/smoke-android.ps1`](../../.github/scripts/uno/smoke-android.ps1)
+`-Apk <path>`. Android calls `Main` with no arguments, so the script asks for the check with
+`REACTOR_SMOKE=1` through the `debug.mono.env` property, then reads the result from logcat.
 
 [`.github/scripts/uno/smoke-package.ps1`](../../.github/scripts/uno/smoke-package.ps1)
 `-Feed <folder> -Version <version>` is CI's check of the
@@ -89,17 +95,17 @@ workloads.
 
 ### Android / iOS
 
-The same projects, different heads. Android has no console entry point, so each
-sample starts there from `Platforms/Android/Main.Android.cs` (for example
-[the counter's](ReactorUnoCounter/Platforms/Android/Main.Android.cs)); the port
-README's [Status](../../src/Reactor.Uno/README.md#status) explains each target's
-entry point.
+The same projects, different heads, and the same `Program.cs`: Android never calls
+`Main` on its own, so Reactor adds the Android Application and Activity that run it
+(the port README's [Status](../../src/Reactor.Uno/README.md#status) explains how).
+`Platforms/Android` keeps only the manifest and `environment.conf`.
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
 
-# Deploy + launch on a connected device or emulator (check `adb devices` first)
-dotnet build -f net10.0-android -t:Run
+# Deploy + launch on a connected device or emulator (check `adb devices` first);
+# the app's logcat streams to the terminal until Ctrl+C
+dotnet run -f net10.0-android
 
 # iOS — compiles on Windows; running it needs a Mac
 dotnet build -f net10.0-ios
@@ -143,7 +149,7 @@ first page on the simulator.
 > tooling pushes them separately to `files/.__override__/`. Installing the APK by
 > hand therefore produces an app that aborts at startup with
 > `No assemblies found in '…/.__override__/arm64-v8a'` (SIGABRT), which the phone
-> reports only as a generic failure. Use `-t:Run`, or build a self-contained APK
+> reports only as a generic failure. Use `dotnet run`, or build a self-contained APK
 > with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
 > sideload one.
 

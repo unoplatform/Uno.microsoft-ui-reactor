@@ -1,0 +1,5 @@
+<Project>
+  <!-- What the package's buildTransitive/ gives a NuGet consumer; these samples use
+       a ProjectReference (or #:project), which doesn't bring it. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\src\Reactor.Uno\buildTransitive\Uno.Microsoft.UI.Reactor.targets" />
+</Project>

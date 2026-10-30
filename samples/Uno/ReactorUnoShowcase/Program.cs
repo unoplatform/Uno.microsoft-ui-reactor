@@ -10,14 +10,8 @@ using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using static Microsoft.UI.Reactor.Factories;
 
-// Desktop, wasm and iOS share ReactorApp.Run; Android has no console entry point —
-// the OS starts the Application in Platforms/Android/, whose CreateHost calls
-// ReactorApp.CreateHost<Showcase>().
-#if __ANDROID__
-// intentionally empty — see Platforms/Android/
-#else
+// Every target starts here; on Android the Application Reactor adds runs this Main.
 ReactorApp.Run<Showcase>("Reactor Showcase (Uno)", width: 560, height: 620);
-#endif
 
 class Showcase : Component
 {
