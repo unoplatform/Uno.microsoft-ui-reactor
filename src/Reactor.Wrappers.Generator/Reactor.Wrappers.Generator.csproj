@@ -2,9 +2,10 @@
 
   <PropertyGroup>
     <!-- TreatAsLocalProperty lets this win over a global TargetFramework.
-         `dotnet run App.cs` on a file-based Uno app that sets TargetFrameworks
-         passes the TFM it picked (e.g. net10.0-browserwasm) to every project
-         its restore reaches, and this one would fail with NETSDK1139. -->
+         A TargetFrameworks set on the command line (the Uno readme runs
+         `dotnet watch` with the property TargetFrameworks=net10.0-desktop)
+         reaches this project too, which would then build as net10.0-desktop
+         and fail with NETSDK1139. -->
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
