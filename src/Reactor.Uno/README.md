@@ -21,6 +21,10 @@ layer replacing the Windows-only windowing/shell stack.
 | Android | `net10.0-android` | ✅ Builds to a **signed APK** and **runs** on a physical device and the emulator |
 | iOS | `net10.0-ios` | ✅ **Runs** on the iOS Simulator; compiles on Windows, but deploying needs a Mac |
 
+Mac Catalyst and tvOS are out of scope. Uno dropped Mac Catalyst from its templates
+in 6.0 and recommends `net10.0-desktop` for macOS, which the desktop head already
+covers.
+
 The samples are **single Uno projects targeting all four heads** — the component
 source is identical everywhere, and so is the entry point: every target calls
 `ReactorApp.Run<T>()` from one `Program.cs` (Uno gives the Apple heads the same

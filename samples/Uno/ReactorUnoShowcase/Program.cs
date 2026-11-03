@@ -2,7 +2,7 @@
 // FrameBuffer) but throw InvalidOperationException on Android and iOS, and there
 // are no OS windows in the browser at all. So the multi-window demo is gated on
 // "desktop", not merely "not wasm".
-#if !__WASM__ && !__ANDROID__ && !__IOS__ && !__MACCATALYST__
+#if !__WASM__ && !__ANDROID__ && !__IOS__
 #define REACTOR_DESKTOP
 #endif
 
