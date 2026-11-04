@@ -180,9 +180,13 @@ Here the `#:project` line builds those targets from source. Outside the repo, th
 come with the package, which needs Uno.Sdk `7.0.0-dev.119` or later: an older
 Uno.Sdk brings a version of the package without them, so the app is never installed.
 
+### Every target from one project
+
+A single file targets one TFM at a time; a project can target them all.
 [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
-multi-targeted project that runs on all of them from one source, with the same
-`ReactorApp.Run` call on each:
+multi-targeted project that runs on each from one source, with the same
+`ReactorApp.Run` call on each (iOS, which needs a Mac to run, is in
+[samples/Uno](../../samples/Uno/README.md#android--ios)):
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
