@@ -3,9 +3,10 @@
 This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) with the Skia renderer. It runs on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS. It is experimental, like Reactor itself, and a work in progress.
 
 - **Package:** [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor) on nuget.org. Prerelease `-dev.N` builds are published from the `uno` branch, and stable releases from `release/stable/*` branches.
+- **Start an app:** `dotnet new install Uno.Templates@7.0.0-dev.119`, then `dotnet new unoapp-reactor -n MyApp`; or add `Reactor` to an existing Uno app's `UnoFeatures`. See the port README's [quick start](src/Reactor.Uno/README.md#quick-start--a-new-app-from-the-template), which also covers a single-file app.
 - **Windows App SDK:** this package doesn't target it; use Microsoft's [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) there.
 - **What works:** the [feature support table](src/Reactor.Uno/README.md#feature-support-on-uno-skia) for Uno Skia.
-- **Build and run:** `dotnet build Reactor.Uno.slnx -f net10.0-desktop` builds the port and its samples; `cd samples/Uno/ReactorUnoCounter && dotnet run -f net10.0-desktop` runs the counter sample. The other samples and targets are in [samples/Uno](samples/Uno/README.md).
+- **Build this repo:** `dotnet build Reactor.Uno.slnx -f net10.0-desktop` builds the port and its samples; `cd samples/Uno/ReactorUnoCounter && dotnet run -f net10.0-desktop` runs the counter sample. The other samples and targets are in [samples/Uno](samples/Uno/README.md).
 
 **Branches:** `uno` (the default) holds the port and takes the pull requests; this fork's `main` is unused. Microsoft's latest `main` comes in through a nightly sync PR (`.github/workflows/upstream-sync.yml`), auto-merged when the merge is clean. Which files are ours and which workflows run here is in [MAINTAINING.md](src/Reactor.Uno/MAINTAINING.md).
 
