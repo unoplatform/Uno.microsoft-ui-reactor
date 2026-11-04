@@ -40,8 +40,8 @@ left on, such an app fails the build with `REACTORUNO0001`, which names the file
 
 On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
 block, so on wasm `Run` starts the app and returns, and any code after it runs
-right away. On Android it only records the root and returns. `RunAsync` is there for callers that want the host's `Task`; on wasm
-it never completes.
+right away. On Android it only records the root and returns. `RunAsync` is there
+for callers that want the host's `Task`; on wasm it never completes.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to
