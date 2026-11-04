@@ -13,6 +13,11 @@ namespace Microsoft.UI.Reactor.Core;
 // ItemsView.ItemTemplate (typed IElementFactory) and the shared `is IElementFactory`
 // checks keep compiling; its members are implemented explicitly here and are unreachable,
 // since its args can't carry data on Skia.
+//
+// Remove once Uno's ItemsRepeater accepts any IElementFactory and the Microsoft.UI.Xaml
+// args are real on Skia (https://github.com/unoplatform/uno-private/issues/2561), and the
+// port's Uno.Sdk pin includes the fix. Delete this file and point the GlobalUsings.cs
+// aliases at Microsoft.UI.Xaml.
 public sealed partial class ElementFactory<T> : Microsoft.UI.Xaml.Controls.IElementFactoryShim
 {
     Microsoft.UI.Xaml.UIElement Microsoft.UI.Xaml.IElementFactory.GetElement(

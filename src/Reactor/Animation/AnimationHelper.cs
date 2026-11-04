@@ -35,7 +35,7 @@ internal static class AnimationHelper
         var compositor = visual.Compositor;
         var target = CompositorPropertyName(property);
 
-        switch (curve)
+        switch (AnimationCapabilities.Resolve(curve, compositor))
         {
             case SpringCurve spring:
             {
@@ -76,7 +76,7 @@ internal static class AnimationHelper
     /// </summary>
     internal static CompositionAnimation CreateScalarImplicitAnimation(Compositor compositor, string target, Curve curve)
     {
-        switch (curve)
+        switch (AnimationCapabilities.Resolve(curve, compositor))
         {
             case SpringCurve spring:
             {
@@ -114,7 +114,7 @@ internal static class AnimationHelper
     /// </summary>
     internal static CompositionAnimation CreateVector3ImplicitAnimation(Compositor compositor, string target, Curve curve)
     {
-        switch (curve)
+        switch (AnimationCapabilities.Resolve(curve, compositor))
         {
             case SpringCurve spring:
             {
@@ -153,7 +153,7 @@ internal static class AnimationHelper
     /// </summary>
     internal static CompositionAnimation CreateScalarTargetAnimation(Compositor compositor, float targetValue, Curve curve)
     {
-        switch (curve)
+        switch (AnimationCapabilities.Resolve(curve, compositor))
         {
             case SpringCurve spring:
             {
@@ -190,7 +190,7 @@ internal static class AnimationHelper
     /// </summary>
     internal static CompositionAnimation CreateVector3TargetAnimation(Compositor compositor, Vector3 targetValue, Curve curve)
     {
-        switch (curve)
+        switch (AnimationCapabilities.Resolve(curve, compositor))
         {
             case SpringCurve spring:
             {
@@ -253,7 +253,7 @@ internal static class AnimationHelper
         var compositor = visual.Compositor;
         var target = CompositorPropertyName(property);
 
-        switch (curve)
+        switch (AnimationCapabilities.Resolve(curve, compositor))
         {
             case SpringCurve spring:
             {
