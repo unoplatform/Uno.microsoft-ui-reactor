@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Reactor.Hosting;
 using Microsoft.UI.Xaml;
@@ -11,7 +12,9 @@ using Windows.Foundation.Metadata;
 /// <c>--smoke</c>: the CI runtime check. Waits for the counter to render, clicks "+"
 /// through its automation peer (no input injection, so it works on a headless
 /// runner), and checks the re-render shows the new count. That exercises startup,
-/// mount, a state update and the reconciler's patch on a live Uno window.
+/// mount, a state update and the reconciler's patch on a live Uno window. Then it awaits
+/// on the UI thread and checks the continuation comes back there, which needs the
+/// SynchronizationContext Uno installs (a stub one dropped it, uno-private#2250).
 /// Exits 0 on success and 1 on failure or timeout.
 /// On WebAssembly it is requested with <c>?smoke</c> in the page URL and does not exit:
 /// the "[smoke] PASS" / "[smoke] FAIL" line on the browser console is the result,
@@ -70,6 +73,12 @@ static class SmokeTest
         var deadline = DateTime.UtcNow + Timeout;
         var clicked = false;
 
+        // Start runs inside OnLaunched, after Reactor's hosting has set up, so this await
+        // captures the SynchronizationContext the hosting leaves in place, the one input
+        // handlers outside Uno's dispatcher callbacks see. The timer below can't check it:
+        // Uno runs every DispatcherQueue callback, ticks included, under its own context.
+        var resumedOnUiThread = ResumesOnUiThread();
+
         var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         timer.Interval = TimeSpan.FromMilliseconds(200);
         timer.Tick += (_, _) =>
@@ -89,17 +98,35 @@ static class SmokeTest
             }
             else if (count == "Count: 1")
             {
-                Finish(timer, 0, "PASS: clicking + re-rendered \"Count: 0\" as \"Count: 1\"");
-                return;
+                // If the continuation was dropped, this never completes and the deadline
+                // below reports it.
+                if (resumedOnUiThread.IsCompleted)
+                {
+                    if (resumedOnUiThread.Result)
+                        Finish(timer, 0, "PASS: clicking + re-rendered \"Count: 0\" as \"Count: 1\", and an await on the UI thread resumed there");
+                    else
+                        Finish(timer, 1, "FAIL: an await on the UI thread resumed on another thread (no SynchronizationContext?)");
+                    return;
+                }
             }
 
             if (DateTime.UtcNow > deadline)
             {
+                var awaited = resumedOnUiThread.IsCompleted ? "resumed" : "never resumed";
                 Finish(timer, 1,
-                    $"FAIL: timed out after {Timeout.TotalSeconds}s (clicked: {clicked}, count text: {count ?? "<not found>"})");
+                    $"FAIL: timed out after {Timeout.TotalSeconds}s (clicked: {clicked}, count text: {count ?? "<not found>"}, await on the UI thread: {awaited})");
             }
         };
         timer.Start();
+    }
+
+    // Task.Yield posts the continuation to SynchronizationContext.Current, so this completes
+    // with true only if that context exists and posts to this thread.
+    static async Task<bool> ResumesOnUiThread()
+    {
+        var queue = DispatcherQueue.GetForCurrentThread();
+        await Task.Yield();
+        return queue.HasThreadAccess;
     }
 
     static void Finish(DispatcherQueueTimer timer, int exitCode, string message)

@@ -61,7 +61,8 @@ Swap `ReactorUnoCounter` for `ReactorUnoShowcase` to run the control showcase, o
 for `ReactorGalleryUno` to run the gallery.
 
 `dotnet run -f net10.0-desktop -- --smoke` runs the counter as CI's runtime check: it
-clicks "+" once, verifies the re-render, and exits 0 (pass) or 1 (fail, after 60s).
+clicks "+" once, verifies the re-render, checks that an `await` on the UI thread resumes
+there, and exits 0 (pass) or 1 (fail, after 60s).
 It also turns on Uno's `ApiInformation.IsFailWhenNotImplemented` for the whole run, so
 code that calls an API Uno only stubs throws instead of silently doing nothing. A stub
 hit during startup fails the check without a FAIL line: it times out on desktop and
