@@ -373,7 +373,9 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | RichTextBlock / rich inline text / Markdown rendering | 🟡 | Most `RichTextBlock` members are not implemented in Uno; rich text and Markdown render incompletely. |
 | RichEditBox | ❌ | Not implemented in Uno. |
 | Custom TitleBar (drag regions, back button, panes) | ❌ | Not implemented in Uno. |
-| Specialty controls: ParallaxView, MapControl, SemanticZoom, LinedFlowLayout, AnnotatedScrollBar | ❌ | Not implemented in Uno. |
+| Virtualized lists: `LazyVStack` / `LazyHStack`, `ItemsRepeater`, `ItemsView` (incl. `LinedFlowLayout`) | ✅ | Uno's `ItemsRepeater` only accepts its own `IElementFactoryShim`, so on Uno Reactor's `ElementFactory<T>` implements it too (`ElementFactoryShim.cs`). |
+| ListBox | ❌ | Uno's `ListBox` shows no items: its default template realizes nothing and it creates no `ListBoxItem` containers, so items can't be clicked or selected. `SelectedItems` isn't implemented either, so `OnSelectionChanged` can't work until Uno's `ListBox` does. Use `ListView` instead. |
+| Specialty controls: ParallaxView, MapControl, SemanticZoom, AnnotatedScrollBar | ❌ | Not implemented in Uno. |
 | Gesture/access flags: `IsTapEnabled` / `IsHoldingEnabled` / `IsDoubleTapEnabled` / `IsRightTapEnabled`, `AccessKey`, `CharacterReceived` | 🟡 | Those specific flags no-op; basic pointer/click still works. |
 | High-contrast / forced-colors detection | ❌ | `AccessibilitySettings.HighContrast` not implemented — charts don't adapt to high contrast. |
 | Single window + render loop + error fallback | ✅ | |
