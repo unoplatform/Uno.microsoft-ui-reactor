@@ -55,24 +55,34 @@ Uno's `unoapp-reactor` template creates a single Uno project for desktop,
 WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature:
 
 ```bash
-dotnet new install Uno.Templates@7.0.0-dev.104
+dotnet new install Uno.Templates@7.0.0-dev.119
 dotnet new unoapp-reactor -n MyApp
 cd MyApp
 dotnet run -f net10.0-desktop
 ```
 
-`7.0.0-dev.104` is the first `Uno.Templates` with the template; later ones work
-too. The generated `.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
+`7.0.0-dev.119` is the first `Uno.Templates` whose app starts on Android from
+`Program.cs`, like every other target; later ones work too. The generated
+`.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
 and no `PackageReference`: the Uno.Sdk pinned in its `global.json` picks the
 [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor)
 version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
 
+The template first shipped in `7.0.0-dev.104`. Up to `7.0.0-dev.115` it gives the
+app its own Android `Application` in `Platforms/Android`, because the package
+those Uno.Sdks bring has no Android entry. Moving such an app to Uno.Sdk
+`7.0.0-dev.119` or later stops the build with `REACTORUNO0001`, whose message
+says what to delete or which property to set.
+
 To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
-and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with, in its
-`global.json` (or in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The
-feature first shipped in Uno.Sdk `7.0.0-dev.97`; an older Uno.Sdk ignores it
-silently, and the build fails with `CS0234` on `Microsoft.UI.Reactor`.
+and pin Uno.Sdk `7.0.0-dev.119` or later in its `global.json` (or in the project:
+`<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in Uno.Sdk
+`7.0.0-dev.97`; an older Uno.Sdk ignores it silently, and the build fails with
+`CS0234` on `Microsoft.UI.Reactor`. From `7.0.0-dev.97` to `7.0.0-dev.115` the
+package comes without the Android entry, so `ReactorApp.Run` in `Program.cs`
+never runs on Android: the app needs its own `NativeApplication` that returns
+`ReactorApp.CreateHost<TRoot>(...)` from `CreateHost`.
 
 ## Quick start — a file-based, single-file Reactor app
 
@@ -126,7 +136,7 @@ dotnet run Counter.cs
 The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk`
 takes its version from the repo-root [`global.json`](../../global.json),
 the one nearest the file. Outside the repo, delete the `#:project` line,
-put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.104` or later
+put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.119` or later
 (or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add `Reactor` to
 the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 [package readme](PackageReadme.md#a-single-file-app) shows.
@@ -512,9 +522,12 @@ to run (`--non-interactive` stops instead).
 
 ## Known limitations / notes
 
-- **Uno version.** The port needs Uno **6.7+** APIs (the `TitleBar` drag-region APIs)
-  and tracks the Uno **7.0** pre-release pinned in the repo-root `global.json`,
-  which the projects and the file-based `Counter.cs` all read. Uno 7.0 renamed the runtime
+- **Uno version.** Apps need Uno.Sdk **`7.0.0-dev.119`** or later, the first
+  whose package starts Android apps from `Program.cs` (see
+  [Quick start](#quick-start--a-new-app-from-the-template)); there is no Uno 6.x
+  support. The port itself builds against the Uno **7.0** pre-release
+  pinned in the repo-root `global.json`, which the projects and the file-based
+  `Counter.cs` all read. Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK

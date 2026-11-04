@@ -7,20 +7,20 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 ## Requirements
 
 - The .NET SDK 10.0.400 or later.
-- Uno.Sdk `7.0.0-dev.104` or later, with the Skia renderer. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
+- Uno.Sdk `7.0.0-dev.119` or later, with the Skia renderer. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
 
 ## A new app
 
 Install the Uno templates and create an app from `unoapp-reactor`:
 
 ```bash
-dotnet new install Uno.Templates@7.0.0-dev.104
+dotnet new install Uno.Templates@7.0.0-dev.119
 dotnet new unoapp-reactor -n MyApp
 cd MyApp
 dotnet run -f net10.0-desktop
 ```
 
-Any later `Uno.Templates` works too; a plain `dotnet new install Uno.Templates` installs the latest stable templates, which don't have `unoapp-reactor` yet.
+Any later `Uno.Templates` works too; a plain `dotnet new install Uno.Templates` installs the latest stable templates, which don't have `unoapp-reactor` yet. Templates from `7.0.0-dev.104` to `7.0.0-dev.115` have it, but give the app its own Android `Application`; on Uno.Sdk `7.0.0-dev.119` or later, such an app stops with `REACTORUNO0001`, whose message says what to change.
 
 The app targets desktop, WebAssembly, Android and iOS. Pick fewer with `-platforms`, for example `-platforms desktop wasm`.
 
@@ -75,7 +75,7 @@ The `#:sdk` line takes the Uno.Sdk version, and with it the Reactor version, fro
 The same file runs on WebAssembly and Android: change its `TargetFramework` line and keep the rest.
 
 - WebAssembly: `#:property TargetFramework=net10.0-browserwasm`. `dotnet run Counter.cs` then prints a localhost URL to open.
-- Android: `#:property TargetFramework=net10.0-android`. With a device or emulator connected, `dotnet run Counter.cs` installs the app, starts it, and streams its logcat. This needs Uno.Sdk `7.0.0-dev.119` or later: an older one brings a version of this package that can't install a single-file app.
+- Android: `#:property TargetFramework=net10.0-android`. With a device or emulator connected, `dotnet run Counter.cs` installs the app, starts it, and streams its logcat.
 
 ## In an existing Uno project
 
@@ -88,7 +88,7 @@ Add `Reactor` to `UnoFeatures` in a single Uno project that uses the Skia render
 </UnoFeatures>
 ```
 
-Pin Uno.Sdk `7.0.0-dev.104` or later in its `global.json`, which `<Project Sdk="Uno.Sdk">` reads (or name it in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in `7.0.0-dev.97`; an Uno.Sdk older than that ignores it without a warning, and the build then fails with `CS0234` on `Microsoft.UI.Reactor`.
+Pin Uno.Sdk `7.0.0-dev.119` or later in its `global.json`, which `<Project Sdk="Uno.Sdk">` reads (or name it in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in `7.0.0-dev.97`; an Uno.Sdk older than that ignores it without a warning, and the build then fails with `CS0234` on `Microsoft.UI.Reactor`. Up to `7.0.0-dev.115`, the version of this package it brings has no Android entry (below), so the app has to start itself on Android.
 
 Remove the Windows target framework (`net10.0-windows10.0.x`) from the project: with `Reactor` in `UnoFeatures`, that target fails with `UNOB0031`, since this package doesn't target the Windows App SDK.
 
