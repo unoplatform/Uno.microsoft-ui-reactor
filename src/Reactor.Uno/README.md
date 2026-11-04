@@ -293,6 +293,7 @@ version.json                         # Nerdbank.GitVersioning, for the Uno packa
 .github/workflows/ci-uno.yml
 .github/workflows/ci-uno-consume.yml
 .github/workflows/conventional-commits.yml
+.github/workflows/label-upstream-files.yml
 .github/workflows/upstream-sync.yml
 ```
 
@@ -302,6 +303,11 @@ compiles (`src/Reactor/`, `src/Reactor.Advanced/`), the root build files
 `global.json`), `AGENTS.md`, `docs/`, `tests/`, and their workflows in
 `.github/workflows/`. Those workflows stay in the tree so the sync merges cleanly,
 but they are switched off on this fork (see [below](#our-workflows-on-this-fork)).
+
+A pull request into `uno` that changes any of Microsoft's files, of any type, gets
+the `warning/touches-upstream` label (`label-upstream-files.yml`), and loses it once
+it no longer does. The workflow keeps its own copy of the list above in `OURS`: a path
+added here goes there too, or the workflow counts it as Microsoft's.
 
 These Microsoft files are modified today. Don't add to the list, and remove an
 entry when you find a way to do without it:
@@ -330,8 +336,9 @@ summary says how many it switched off.
 That makes `KEEP` the list of workflows this fork runs:
 
 - **A new workflow file of ours goes in `KEEP`** in the pull request that adds it,
-  and in the "Ours" list above. Otherwise the next nightly run switches it off,
-  and a switched-off workflow no longer runs on its triggers. Renaming one is the
+  and in the "Ours" list above (and `OURS` in `label-upstream-files.yml`).
+  Otherwise the next nightly run switches it off, and a switched-off workflow no
+  longer runs on its triggers. Renaming one is the
   same: rename it in `KEEP` too.
 - **Called workflows too** (`on: workflow_call`, such as `ci-uno-consume.yml`).
   GitHub doesn't document whether it lists them, nor whether a switched-off one

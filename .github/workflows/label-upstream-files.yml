@@ -1,0 +1,123 @@
+name: Label upstream file changes
+
+# Labels a pull request into `uno` with `warning/touches-upstream` when it changes any of
+# Microsoft's files, and removes the label once it no longer does.
+#
+# "Microsoft's files" is every path outside our own, whatever the file type: the "Ours" list in
+# src/Reactor.Uno/README.md ("What's ours, what's Microsoft's"), copied into OURS below. Checking
+# paths instead of file types also catches Microsoft's .csproj, .md, .json and workflow files, and
+# a new file added under one of their folders (src/Reactor/, docs/, tests/, ...), which is still
+# theirs to sync. Every such change has to be merged again, and can conflict, on each sync.
+#
+# The upstream sync PR is skipped: it changes Microsoft's files by definition and has its own
+# `upstream-sync` label.
+
+on:
+  pull_request:
+    branches:
+      - uno
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  issues: write # create the label
+  pull-requests: write # read the changed files, add or remove the label
+
+jobs:
+  label:
+    name: Label upstream file changes
+    if: >-
+      github.repository == 'unoplatform/Uno.microsoft-ui-reactor'
+      && github.head_ref != 'automation/upstream-sync'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Label the PR if it changes Microsoft's files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          LABEL: warning/touches-upstream
+          # Our paths, from the "Ours" list in src/Reactor.Uno/README.md: keep the two in sync.
+          # An entry ending in `/` is a folder (keep the slash: `src/Reactor.Uno` would also match
+          # `src/Reactor.Uno.Foo/`), any other entry is one file.
+          OURS: |
+            src/Reactor.Uno/
+            samples/Uno/
+            Reactor.Uno.slnx
+            version.json
+            .github/actions/nuget-org-publish/
+            .github/actions/nuget-uno-publish/
+            .github/actions/tag-release/
+            .github/scripts/uno/
+            .github/workflows/ci-uno.yml
+            .github/workflows/ci-uno-consume.yml
+            .github/workflows/conventional-commits.yml
+            .github/workflows/label-upstream-files.yml
+            .github/workflows/upstream-sync.yml
+        run: |
+          set -euo pipefail
+
+          is_ours() {
+            local path="$1" entry
+            while IFS= read -r entry; do
+              [ -z "$entry" ] && continue
+              case "$entry" in
+                */) case "$path" in "$entry"*) return 0 ;; esac ;;
+                *) [ "$path" = "$entry" ] && return 0 ;;
+              esac
+            done <<< "$OURS"
+            return 1
+          }
+
+          # The PR's changed paths; a rename or move counts its old path too, so moving a file
+          # out of src/Reactor/ is still a change to Microsoft's files.
+          changed="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
+                       --jq '.[] | .filename, (.previous_filename // empty)' | LC_ALL=C sort -u)"
+
+          microsoft=""
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            is_ours "$path" || microsoft+="${path}"$'\n'
+          done <<< "$changed"
+
+          # The files API lists at most 3000 files; a PR that large is labeled without the list.
+          if [ "${CHANGED_FILES:-0}" -gt 3000 ]; then
+            echo "::warning::PR changes ${CHANGED_FILES} files; GitHub lists only 3000. Labeling it anyway."
+            microsoft+="(more than 3000 changed files, not all listed)"$'\n'
+          fi
+
+          has_label="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" \
+                         --jq "any(.[]; .name == \"${LABEL}\")")"
+
+          # A PR from a fork gets a read-only token: report instead of failing.
+          label_failed() { echo "::warning::Could not $1 the '${LABEL}' label (a PR from a fork has a read-only token)."; }
+
+          if [ -n "$microsoft" ]; then
+            if [ "$has_label" != "true" ]; then
+              gh label create "$LABEL" -R "$GITHUB_REPOSITORY" --color 'fbca04' \
+                --description "Changes files from microsoft/microsoft-ui-reactor" --force >/dev/null 2>&1 || true
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -f "labels[]=${LABEL}" >/dev/null \
+                || label_failed add
+            fi
+            {
+              echo "### Changes Microsoft's files: labeled \`${LABEL}\`"
+              echo "Each change to these has to be merged again, and can conflict, on every upstream sync: see \"What's ours, what's Microsoft's\" in src/Reactor.Uno/README.md."
+              echo '```'
+              printf '%s' "$microsoft"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            printf "Microsoft's files changed:\n%s" "$microsoft"
+          else
+            if [ "$has_label" = "true" ]; then
+              # The label's name goes in the URL path: escape its `/`.
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels/${LABEL//\//%2F}" >/dev/null \
+                || label_failed remove
+            fi
+            echo "### Changes only our files: no \`${LABEL}\` label" >> "$GITHUB_STEP_SUMMARY"
+            echo "Changes only our files."
+          fi

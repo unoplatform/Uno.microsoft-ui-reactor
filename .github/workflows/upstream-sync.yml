@@ -63,7 +63,7 @@ jobs:
           # The workflows this fork runs; every other one comes from microsoft/microsoft-ui-reactor.
           # A new workflow file of ours goes here, called ones too (ci-uno-consume.yml), and in the
           # "Ours" list of src/Reactor.Uno/README.md ("Our workflows on this fork").
-          KEEP: ci-uno.yml ci-uno-consume.yml conventional-commits.yml upstream-sync.yml
+          KEEP: ci-uno.yml ci-uno-consume.yml conventional-commits.yml label-upstream-files.yml upstream-sync.yml
         run: |
           set -euo pipefail
           count=0
