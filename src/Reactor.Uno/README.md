@@ -316,6 +316,8 @@ entry when you find a way to do without it:
 |---|---|---|
 | `README.md` | An Uno Platform section at the top | GitHub shows the root README on the fork's front page. |
 | `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | It's the port's only Uno.Sdk pin: `Reactor.Uno.slnx` sits at the root, and every Uno project and `Counter.cs` below it reads this file too. A second `global.json` under the port would win for builds started inside it and could drift from this one. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
+| `global.json` | The .NET SDK floor raised from `10.0.100` to `10.0.400` | Reactor's source generators build against Roslyn 5.9, which SDKs before the 4xx band can't load: the compiler drops them (`CS9057`) and the build fails with `CS0759`. This one does affect the Windows build, which has the same need, so it could go to Microsoft's repository. |
+| `src/Reactor.Wrappers.Generator/Reactor.Wrappers.Generator.csproj` | `TargetFramework` added to `TreatAsLocalProperty` | Keeps the generator on `netstandard2.0` when a target framework comes in as a global property: from a file-based app's restore, or from `dotnet watch --property:TargetFrameworks=…` ([Hot Reload](#from-the-command-line)). Without it the generator is evaluated as the app's target and restore fails with `NETSDK1139`. Changes nothing for a build that passes no target framework globally. |
 | `src/Reactor/Core/Reconciler.Mount.cs` | `return null` → `return default` in a generic helper | Satisfies Uno's nullable analysis. Behaves the same on Windows, since `T` is constrained to a reference type. |
 
 The shared source has no `#if REACTOR_UNO` blocks. A guard around
