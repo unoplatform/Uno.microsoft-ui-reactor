@@ -75,7 +75,7 @@ The `#:sdk` line takes the Uno.Sdk version, and with it the Reactor version, fro
 The same file runs on WebAssembly and Android: change its `TargetFramework` line and keep the rest.
 
 - WebAssembly: `#:property TargetFramework=net10.0-browserwasm`. `dotnet run Counter.cs` then prints a localhost URL to open.
-- Android: `#:property TargetFramework=net10.0-android`. With a device or emulator connected, `dotnet run Counter.cs` installs the app, starts it, and streams its logcat.
+- Android: `#:property TargetFramework=net10.0-android`. With a device or emulator connected, `dotnet run Counter.cs` installs the app, starts it, and streams its logcat. This needs Uno.Sdk `7.0.0-dev.119` or later: an older one brings a version of this package that can't install a single-file app.
 
 ## In an existing Uno project
 

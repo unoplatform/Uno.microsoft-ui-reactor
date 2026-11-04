@@ -166,6 +166,10 @@ installs the app, starts it and streams its logcat until Ctrl+C. `dotnet run`
 itself only installs apps that have a project file. For a single file, Reactor's
 build targets install the app before `dotnet run` starts it.
 
+Here the `#:project` line builds those targets from source. Outside the repo, they
+come with the package, which needs Uno.Sdk `7.0.0-dev.119` or later: an older
+Uno.Sdk brings a version of the package without them, so the app is never installed.
+
 [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
 multi-targeted project that runs on all of them from one source, with the same
 `ReactorApp.Run` call on each:
