@@ -292,8 +292,9 @@ window persistence, and the in-app devtools menu.
 
 This repository is a fork of
 [microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor).
-`upstream-sync.yml` merges Microsoft's `main` into `uno` every night, so every
-line of theirs we change has to be merged again, and can conflict, on every sync.
+`upstream-sync.yml` brings Microsoft's latest `main` into `uno` every night
+through a pull request, auto-merged when the merge is clean, so every line of
+theirs we change has to be merged again, and can conflict, on every sync.
 
 **Don't modify Microsoft's files.** The port's code, build settings and docs go
 in the paths below. When shared source doesn't compile on Uno, work around it
