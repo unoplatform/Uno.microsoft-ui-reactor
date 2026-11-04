@@ -3735,6 +3735,7 @@ public sealed partial class Reconciler : IDisposable
         ElementPool.MarkCompositorTainted(uie);
         var visual = ElementCompositionPreview.GetElementVisual(uie);
         var compositor = visual.Compositor;
+        if (!AnimationCapabilities.SupportsImplicitAnimations(compositor)) return; // the properties snap
         var implicitAnimations = visual.ImplicitAnimations ?? compositor.CreateImplicitAnimationCollection();
 
         if (implicitT.Opacity is not null)
@@ -3775,6 +3776,7 @@ public sealed partial class Reconciler : IDisposable
         ElementPool.MarkCompositorTainted(uie);
         var visual = ElementCompositionPreview.GetElementVisual(uie);
         var compositor = visual.Compositor;
+        if (!AnimationCapabilities.SupportsImplicitAnimations(compositor)) return; // layout changes snap
 
         var implicitAnimations = compositor.CreateImplicitAnimationCollection();
 
@@ -3829,6 +3831,7 @@ public sealed partial class Reconciler : IDisposable
     internal static void ClearLayoutAnimation(UIElement uie)
     {
         var visual = ElementCompositionPreview.GetElementVisual(uie);
+        if (!AnimationCapabilities.SupportsImplicitAnimations(visual.Compositor)) return;
         visual.ImplicitAnimations = null;
     }
 
@@ -3846,6 +3849,7 @@ public sealed partial class Reconciler : IDisposable
         ElementPool.MarkCompositorTainted(uie);
         var visual = ElementCompositionPreview.GetElementVisual(uie);
         var compositor = visual.Compositor;
+        if (!AnimationCapabilities.SupportsImplicitAnimations(compositor)) return; // the properties snap
 
         // Start from existing implicit animations (layout may have set Offset/Size)
         // or create a new collection
@@ -3886,7 +3890,8 @@ public sealed partial class Reconciler : IDisposable
         {
             // No layout animation either — clear everything
             var visual = ElementCompositionPreview.GetElementVisual(uie);
-            visual.ImplicitAnimations = null;
+            if (AnimationCapabilities.SupportsImplicitAnimations(visual.Compositor))
+                visual.ImplicitAnimations = null;
         }
         // If layout animation exists, ApplyLayoutAnimation will recreate the collection
         // with just layout entries on next update
@@ -4288,6 +4293,7 @@ public sealed partial class Reconciler : IDisposable
         {
             var child = panel.Children[i];
             var visual = ElementCompositionPreview.GetElementVisual(child);
+            if (!AnimationCapabilities.SupportsImplicitAnimations(visual.Compositor)) return;
             if (visual.ImplicitAnimations is null) continue;
 
             var delay = TimeSpan.FromTicks(config.Delay.Ticks * i);

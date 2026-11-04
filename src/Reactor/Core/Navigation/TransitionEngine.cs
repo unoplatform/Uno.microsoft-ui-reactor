@@ -882,10 +882,10 @@ internal static class TransitionEngine
         var (outEnd, inStart) = GetSlideOffsets(direction);
 
         // Outgoing: spring offset + fade
-        var outSpring = compositor.CreateSpringVector3Animation();
-        outSpring.DampingRatio = spring.DampingRatio;
-        outSpring.Period = TimeSpan.FromSeconds(spring.Period);
-        outSpring.FinalValue = outEnd;
+        // Through AnimationHelper, which turns the spring into an ease where springs
+        // aren't implemented (AnimationCapabilities).
+        var curve = Microsoft.UI.Reactor.Animation.Curve.Spring(spring.DampingRatio, spring.Period);
+        var outSpring = Microsoft.UI.Reactor.Animation.AnimationHelper.CreateVector3TargetAnimation(compositor, outEnd, curve);
         outVisual.StartAnimation("Offset", outSpring);
 
         var outFade = compositor.CreateScalarKeyFrameAnimation();
@@ -897,10 +897,7 @@ internal static class TransitionEngine
         // Incoming: spring offset + fade
         inVisual.Offset = inStart;
 
-        var inSpring = compositor.CreateSpringVector3Animation();
-        inSpring.DampingRatio = spring.DampingRatio;
-        inSpring.Period = TimeSpan.FromSeconds(spring.Period);
-        inSpring.FinalValue = Vector3.Zero;
+        var inSpring = Microsoft.UI.Reactor.Animation.AnimationHelper.CreateVector3TargetAnimation(compositor, Vector3.Zero, curve);
         inVisual.StartAnimation("Offset", inSpring);
 
         var inFade = compositor.CreateScalarKeyFrameAnimation();
