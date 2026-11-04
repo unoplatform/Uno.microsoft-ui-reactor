@@ -24,7 +24,7 @@ README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-fr
 
 ## Prerequisites
 
-- **.NET 10 SDK** (`10.0.400`+ — see [`global.json`](global.json)). Reactor's
+- **.NET 10 SDK** (`10.0.400`+ — see [`global.json`](../../global.json)). Reactor's
   source generators build against Roslyn 5.9, which older SDKs can't load: the
   compiler drops them (`CS9057`) and the build fails with a wall of `CS0759`.
 - **[uno-check](https://platform.uno/docs/articles/external/uno.check/doc/using-uno-check.html)**
@@ -39,7 +39,7 @@ README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-fr
 
 iOS compiles on Windows; deploying to a device still needs a Mac.
 
-The Uno projects resolve `Uno.Sdk` from the nearby `global.json` and restore from
+The Uno projects resolve `Uno.Sdk` from the repo-root `global.json` and restore from
 `nuget.org` only (see [`nuget.config`](nuget.config)); they do **not** inherit the
 repo-root Windows/WinAppSDK build infrastructure.
 
@@ -80,7 +80,7 @@ an emulator, and run
 single-file app against the **package**, in the form the
 [package readme](../../src/Reactor.Uno/PackageReadme.md#a-single-file-app) shows: it copies
 `Counter.cs` out of the repo, swaps its `#:project` line for the `Reactor` UnoFeature on the
-readme's Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that version from
+repo-root `global.json`'s Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that version from
 the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
 UI Automation (Windows, PowerShell 7).
 
@@ -88,7 +88,7 @@ UI Automation (Windows, PowerShell 7).
 `-Feed <folder> -Version <version>` does the same for
 the counter **project** on the other heads: it copies the project out of the repo and makes
 the [changes above](#reactor-on-uno-platform--samples) (drops the `ProjectReference`, adds
-`Reactor` to `UnoFeatures`, pins the package readme's Uno.Sdk in `global.json`), sets
+`Reactor` to `UnoFeatures`, pins the repo-root Uno.Sdk in `global.json`), sets
 `UnoReactorVersion=<version>`, and builds `net10.0-browserwasm`, `net10.0-android` and
 `net10.0-ios` (pick with `-Framework`). It builds only; Android and iOS need their
 workloads.
@@ -155,11 +155,12 @@ first page on the simulator.
 
 ### file-based/Counter.cs
 
-A single-file app — no project, no `.csproj`. Two things differ from the projects
-above: its root component must **not** be named `App`, and its `#:sdk` line pins
-the Uno.Sdk version itself instead of reading `global.json`. Both are explained in
-the port README's
-[Known limitations / notes](../../src/Reactor.Uno/README.md#known-limitations--notes).
+A single-file app — no project, no `.csproj`. Like the projects above, it takes
+its Uno.Sdk version from [`global.json`](../../global.json) (its `#:sdk Uno.Sdk` line
+names no version). Unlike them, its root component must **not** be named `App`,
+as the port README's
+[Known limitations / notes](../../src/Reactor.Uno/README.md#known-limitations--notes)
+explains.
 
 ```bash
 cd samples/Uno/file-based
