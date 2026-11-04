@@ -376,7 +376,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Layout: Grid, Stack, panels, Yoga/Flex | ✅ | |
 | Core controls: Button, TextBlock, TextBox, ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, ScrollView | ✅ | Sample-verified (desktop + wasm). |
 | Theming (Light/Dark) + live theme-change re-render | ✅ | |
-| Implicit animations & transitions (Scale/Rotation/Opacity/Translation transitions, spring / natural-motion, `ImplicitAnimationCollection`) | ❌ | Not implemented in Uno — the calls no-op. |
+| Implicit animations & transitions (`.Animate()`, `.LayoutAnimation()`, `.Stagger()`, Scale/Rotation/Opacity/Translation transitions, spring / natural-motion) | 🟡 | Uno doesn't implement `ImplicitAnimationCollection` or spring animations. Reactor checks once whether they exist: without them `.Animate()`, `.LayoutAnimation()` and `.Stagger()` don't animate (the change snaps), and a `Curve.Spring()` plays as a 300 ms decelerating ease. Enter/exit `.Transition()`s and `.Keyframes()` use explicit keyframe animations, which Uno implements. |
 | RichTextBlock / rich inline text / Markdown rendering | 🟡 | Most `RichTextBlock` members are not implemented in Uno; rich text and Markdown render incompletely. |
 | RichEditBox | ❌ | Not implemented in Uno. |
 | Custom TitleBar (drag regions, back button, panes) | ❌ | Not implemented in Uno. |
