@@ -78,6 +78,15 @@ dotnet run -f net10.0-android
 dotnet build -f net10.0-ios
 ```
 
+> **Don't sideload the Debug APK.** A Debug Android build uses .NET's *Fast
+> Deployment*: the managed assemblies are **not inside the APK** — the deploy
+> tooling pushes them separately to `files/.__override__/`. Installing the APK by
+> hand therefore produces an app that aborts at startup with
+> `No assemblies found in '…/.__override__/arm64-v8a'` (SIGABRT), which the phone
+> reports only as a generic failure. Use `dotnet run`, or build a self-contained APK
+> with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
+> sideload one.
+
 On a Mac, to run on the iOS Simulator, boot a simulator first
 (`xcrun simctl list devices booted` shows it), then build for the simulator and
 install the app on it. Use `iossimulator-arm64` on Apple silicon and
@@ -110,15 +119,6 @@ first page on the simulator.
 > `-p:ValidateXcodeVersion=false` on the build. The `-f` value and the `bin/` path
 > in the commands change to match. If your Xcode matches your iOS workload, you
 > don't need any of this.
-
-> **Don't sideload the Debug APK.** A Debug Android build uses .NET's *Fast
-> Deployment*: the managed assemblies are **not inside the APK** — the deploy
-> tooling pushes them separately to `files/.__override__/`. Installing the APK by
-> hand therefore produces an app that aborts at startup with
-> `No assemblies found in '…/.__override__/arm64-v8a'` (SIGABRT), which the phone
-> reports only as a generic failure. Use `dotnet run`, or build a self-contained APK
-> with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
-> sideload one.
 
 ### file-based/Counter.cs
 
