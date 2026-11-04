@@ -237,8 +237,8 @@ to emit the control descriptors, exactly as in the Windows build.
 > glob that matches zero files is completely silent in MSBuild, so when Track B
 > moved those three subsystems the port lost 74 files with a green build. The
 > `VerifySharedSourceRoots` target in `Reactor.Uno.csproj` now fails the build if
-> any shared root stops existing; `ci-uno.yml` is path-gated on both
-> `src/Reactor/**` and `src/Reactor.Advanced/**`.
+> any shared root stops existing, and `ci-uno.yml` has no path filter, so a
+> change under `src/Reactor/` or `src/Reactor.Advanced/` builds the port too.
 
 The assembly is named **`Reactor`** with root namespace
 **`Microsoft.UI.Reactor`** — identical to the Windows package — so consumer
