@@ -408,7 +408,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Core controls: Button, TextBlock, TextBox, ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, ScrollView | ✅ | Sample-verified (desktop + wasm). |
 | Theming (Light/Dark) + live theme-change re-render | ✅ | |
 | Implicit animations & transitions (`.Animate()`, `.LayoutAnimation()`, `.Stagger()`, Scale/Rotation/Opacity/Translation transitions, spring / natural-motion) | 🟡 | Uno doesn't implement `ImplicitAnimationCollection` or spring animations. Reactor checks once whether they exist: without them `.Animate()`, `.LayoutAnimation()` and `.Stagger()` don't animate (the change snaps), and a `Curve.Spring()` plays as a 300 ms decelerating ease. Enter/exit `.Transition()`s and `.Keyframes()` use explicit keyframe animations, which Uno implements. |
-| RichTextBlock / rich inline text / Markdown rendering | 🟡 | Most `RichTextBlock` members are not implemented in Uno; rich text and Markdown render incompletely. |
+| RichTextBlock / rich inline text / Markdown rendering | 🟡 | Most `RichTextBlock` members are not implemented in Uno, so rich text renders incompletely. Markdown is source-shared from `Reactor.Advanced` and compiles, but renders through `RichTextBlock`, so its output is incomplete too. |
 | RichEditBox | ❌ | Not implemented in Uno. |
 | Custom TitleBar (drag regions, back button, panes) | ❌ | Not implemented in Uno. |
 | Virtualized lists: `LazyVStack` / `LazyHStack`, `ItemsRepeater`, `ItemsView` (incl. `LinedFlowLayout`) | ✅ | Uno's `ItemsRepeater` only accepts its own `IElementFactoryShim`, so on Uno Reactor's `ElementFactory<T>` implements it too (`ElementFactoryShim.cs`). |
@@ -431,8 +431,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Window drag-move, aspect-ratio lock | ❌ | Still no-op stubs — **not yet audited** against Uno's API surface (multi-window, DPI, pickers and closing guards all turned out to be implementable, so these may be too). |
 | Docking (dock manager, tab tear-off, floating windows, splitters) | ❌ | Excluded from the port entirely. |
 | In-app devtools | ❌ | `DevtoolsEnabled` is `false`. |
-| Charting / DataGrid / PropertyGrid | 🟡 | Source-shared from `Reactor.Advanced` and compiling on all three TFMs; render path shared with WinUI, but not yet runtime-verified on Skia. |
-| Markdown rendering | 🟡 | Source-shared from `Reactor.Advanced`. Compiles, but depends on `RichTextBlock`, which Uno implements only partially — so rich output renders incompletely. |
+| Charting / DataGrid / PropertyGrid | 🟡 | Source-shared from `Reactor.Advanced` and compiling on all four TFMs; render path shared with WinUI, but not yet runtime-verified on Skia. |
 
 > The ❌ / 🟡 runtime rows line up with the `Uno0001` *not-implemented* build warnings: the code compiles, but those specific APIs no-op (or throw) on Uno. They don't affect the ✅ rows.
 
