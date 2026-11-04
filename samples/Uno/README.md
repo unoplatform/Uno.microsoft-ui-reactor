@@ -12,7 +12,7 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 | [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm and Android with a header change ([wasm](../../src/Reactor.Uno/README.md#run-on-webassembly-instead), [Android](../../src/Reactor.Uno/README.md#run-on-android-instead)) |
 
 All three app samples are **single Uno projects targeting all four heads** — the
-`Component` source is identical everywhere; only the entry point differs (see
+`Component` source and the `Program.cs` entry point are identical everywhere (see
 [Status](../../src/Reactor.Uno/README.md#status) in the port README).
 
 The samples reference the port as a project (`src/Reactor.Uno`). To use one
