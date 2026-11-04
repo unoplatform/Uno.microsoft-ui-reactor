@@ -188,32 +188,45 @@ The port lives under the repo's conventional `src/` and `samples/` folders, but
 the Windows / Windows App SDK build infrastructure — the repo-root
 `Directory.Build.props` imports `Reactor.targets` and pins WinAppSDK, and the
 root `Directory.Packages.props` turns Central Package Management on. MSBuild
-stops walking up at the nearest match, so these shadow files pin the `Uno.Sdk`
-and turn CPM off for the Uno projects only; the Windows framework build is
-untouched (and the Uno projects stay out of the main `Reactor.slnx`, so CI never
-restores them). Which files are ours and which are Microsoft's is listed in
+stops walking up at the nearest match, so these shadow files stop that
+inheritance and turn CPM off for the Uno projects only; the `Uno.Sdk` itself is
+pinned only in the repo-root `global.json`. The Windows framework build is
+untouched, and the Uno projects stay out of Microsoft's `Reactor.slnx`, so
+Microsoft's CI never restores them. Which files are ours and which are
+Microsoft's is listed in
 [What's ours, what's Microsoft's](#whats-ours-whats-microsofts).
 
 ```
 src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft.UI.Reactor)
   Reactor.Uno.csproj        # shares ../Reactor source, targets Uno TFMs
   GlobalUsings.cs           # disambiguation aliases (see below)
+  ElementFactoryShim.cs     # lets Uno's ItemsRepeater take Reactor's ElementFactory<T>
+  WinRTShims.cs             # CsWinRT types the shared source names but Uno lacks
+  GlobalizationShims.cs     # Language.IsWellFormed, which Uno only stubs
   Hosting/
     ReactorApp.cs           # ReactorApp.Run / RunAsync + the static surface the core needs
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
     ReactorHost.cs          # the render loop (reconcile → Window.Content → effects)
     Windowing.cs            # minimal ReactorWindow + windowing types for the shared hooks
+    ReactorAndroidApplication.cs  # Android: runs the app's Main from the Application
+    DevServerConnection.cs  # connects to the Uno Dev Server for Hot Reload
+    SafeAreaEdges.cs        # which edges the mobile safe-area padding keeps clear
+    ReactorHostControl.cs · WindowIcon.cs  # Uno stand-ins for excluded Windows types
+  buildTransitive/          # package build targets: the Android entry (ReactorAndroidEntry),
+                            #   single-file Android install, launcher icon / splash
+  PackageReadme.md          # the nuget.org readme
   nuget.config              # nuget.org (self-contained restore)
   Directory.Build.props     # stops inheritance of the repo-root Windows build infra
   Directory.Packages.props  # CPM off for this project
 
-samples/Uno/                # Uno samples — one shared isolation set for all three
+samples/Uno/                # Uno samples — one shared isolation set for all of them
   nuget.config · Directory.Build.props · Directory.Packages.props
-  ReactorUnoCounter/        # normal Uno single-project app (desktop + wasm)
+  ReactorUnoCounter/        # minimal Uno single-project app (desktop, wasm, android, ios)
   ReactorUnoShowcase/       # larger showcase app
+  ReactorGalleryUno/        # the Reactor gallery, sharing samples/ReactorGallery's source
   file-based/Counter.cs     # the single-file app
 
-Reactor.Uno.slnx            # dedicated solution (kept out of the main Reactor.slnx)
+Reactor.Uno.slnx            # dedicated solution (kept out of Microsoft's Reactor.slnx)
 ```
 
 ### Source sharing
