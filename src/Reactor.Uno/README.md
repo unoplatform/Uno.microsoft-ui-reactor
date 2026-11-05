@@ -37,7 +37,9 @@ first page, and the counter responds to taps.
 ## Quick start — a new app from the template
 
 Uno's `unoapp-reactor` template creates a single Uno project for desktop,
-WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature:
+WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature.
+Create it from the command line: Visual Studio's New Project dialog doesn't list
+this template.
 
 ```bash
 dotnet new install Uno.Templates@7.0.0-dev.119

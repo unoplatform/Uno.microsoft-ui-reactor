@@ -11,7 +11,7 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 
 ## A new app
 
-Install the Uno templates and create an app from `unoapp-reactor`:
+Install the Uno templates and create an app from `unoapp-reactor`, from the command line (Visual Studio's New Project dialog doesn't list this template):
 
 ```bash
 dotnet new install Uno.Templates@7.0.0-dev.119
