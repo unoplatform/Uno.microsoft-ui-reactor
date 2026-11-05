@@ -157,15 +157,23 @@ Uno's tooling reads this report: the Dev Server's operation status and the App M
 `ReactorApp.Run`'s `configure` callback:
 
 ```csharp
+#if DEBUG
+using Uno.UI;
+#endif
+
 ReactorApp.Run<CounterApp>("Counter", configure: host =>
 {
 #if DEBUG
 #pragma warning disable UNO0008 // Obsolete in favor of UseStudio(), which also turns on Hot Design
-    Uno.UI.WindowExtensions.EnableHotReload(host.Window);
+    host.Window.EnableHotReload();
 #pragma warning restore UNO0008
 #endif
 });
 ```
+
+Call it as an extension method. When Hot Design is in the build, both Uno's Hot Reload
+client and Hot Design define `Uno.UI.WindowExtensions`, so naming the type
+(`Uno.UI.WindowExtensions.EnableHotReload(…)`) fails with `CS0433`.
 
 Edits then report Success and keep state. Whether Reactor.Uno should make this call
 itself is still open, and a code-only framework needs a supported Uno API for it.
@@ -184,7 +192,7 @@ way yet for a framework to report its own result into the Hot Reload operation.
 
 Every App MCP command (`uno-devserver app info`, `hot-reload-status`, `screenshot`, …)
 answers *"No connected app instance"*, although the app is connected and Hot Reload
-works. An agent can edit a Reactor app's code but can't see or drive the app. Two
+works. An agent can edit a Reactor app's code but can't see or drive the app. Three
 things are missing:
 
 - **Nothing loads the App MCP client.** A XAML app loads it from its generated
@@ -194,19 +202,34 @@ things are missing:
   from `Application.Current`'s assembly. In a Reactor app that is `Reactor.dll`, where
   `ReactorApplication` lives, and the build stamps the configuration on the app's own
   assembly only.
+- **The client needs the window registered with Uno's Hot Reload client**, the same
+  registration as in the [first issue](#uno-reports-every-reactor-edit-as-failed). It
+  reaches the UI through that window. Without it, the App MCP finds the app, but
+  `info`, `find` and `screenshot` get no answer and time out after 30 seconds.
 
 **Status:** a fix to the App MCP client is in progress. Once it ships, the app also
-needs to load the client in Debug builds, in the same `configure` callback:
+needs both Debug calls in its `configure` callback:
 
 ```csharp
 #if DEBUG
-    MyApp.GlobalStaticResources.Initialize(); // MyApp: the app's root namespace
+using Uno.UI;
 #endif
+
+ReactorApp.Run<MainComponent>("MyApp", configure: host =>
+{
+#if DEBUG
+    MyApp.GlobalStaticResources.Initialize(); // MyApp: the app's root namespace
+#pragma warning disable UNO0008
+    host.Window.EnableHotReload();
+#pragma warning restore UNO0008
+#endif
+});
 ```
 
-With both, every App MCP command worked on desktop. By default `app tree` shows only
-the root, because Reactor's elements count as library elements; `--detail full` shows
-the whole UI.
+With the client fix and both calls, every App MCP command worked on desktop, in the
+samples and in a new `unoapp-reactor` app. By default `app tree` shows only the root,
+because Reactor's elements count as library elements; `--detail full` shows the whole
+UI.
 
 ### Hot Design doesn't support Reactor apps
 
@@ -216,8 +239,9 @@ is `ReactorApplication`. It logs *"Unable to find ServerProcessor via attribute 
 reflection"*, and its Themes panel stays unavailable. It isn't needed for Hot Reload or
 the App MCP.
 
-**Workaround:** don't call `UseStudio()`. To leave the Hot Design package out of Debug
-builds, set `<UnoDisableHotDesign>true</UnoDisableHotDesign>` in the app project.
+**Workaround:** don't call `UseStudio()`. Apps created from `unoapp-reactor` keep the
+Hot Design package in Debug builds, which does no harm while nothing calls `UseStudio()`.
+To leave it out, set `<UnoDisableHotDesign>true</UnoDisableHotDesign>` in the app project.
 
 ### Desktop apps started from the command line refuse every edit
 
@@ -251,6 +275,20 @@ hot-reload workspace … its generated code will be MISSING"*, because the gener
 built against a newer Roslyn than the Dev Server's. Edits to the app still applied.
 Edits to `Reactor.Uno`'s own source, when it's a project reference as in the samples,
 are expected to miss the generated code (not tested).
+
+### New `unoapp-reactor` apps have no solution file
+
+`unoapp-reactor` creates the project without a solution. Started in that folder,
+`uno-devserver start` runs without a solution: it doesn't write the port into the
+project's `.csproj.user`, so the app has no Dev Server to connect to and gets no Uno
+Hot Reload from the command line.
+
+**Workaround:** add a solution before starting the Dev Server:
+
+```bash
+dotnet new sln --format slnx
+dotnet sln add MyApp.csproj
+```
 
 ### `uno-devserver app` starts a second Dev Server
 
@@ -297,6 +335,11 @@ On Windows 11 with SDK 10.0.403, Uno.Sdk 7.0.0-dev.113 and Uno.WinUI.DevServer
    `dotnet dnx --prerelease uno.devserver app …`: `info`, `find`, `click`, `assert`,
    `screenshot` and `hot-reload-status`, including an edit that doesn't compile and one
    whose `Render()` throws.
+
+On 2026-11-05, the App MCP checks were repeated on a new desktop app from
+`unoapp-reactor` (Uno.Templates 7.0.0-dev.161, so Uno.Sdk 7.0.0-dev.161, Reactor
+0.1.0-dev.160 and Hot Design 2.0.0-dev.46 in the build), adding a solution, the client
+fix and the Debug calls one at a time.
 
 All the temporary changes were reverted.
 
