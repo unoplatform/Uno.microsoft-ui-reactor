@@ -25,23 +25,8 @@ Mac Catalyst and tvOS are out of scope. Uno dropped Mac Catalyst from its templa
 in 6.0 and recommends `net10.0-desktop` for macOS, which the desktop head already
 covers.
 
-The samples are **single Uno projects targeting all four heads** — the component
-source is identical everywhere, and so is the entry point: every target calls
-`ReactorApp.Run<T>()` from one `Program.cs` (Uno gives the Apple heads the same
-host-builder shape as desktop). Android never calls `Main` on its own, so the
-package's build targets add the Android Application and launcher Activity
-(`ReactorAndroidEntry`, on by default): the Application runs `Main`, then starts the
-app. They also compile the app with an entry point, which the Android SDK otherwise
-leaves out, and take the launcher icon and splash screen from the app's `UnoIcon` and
-`UnoSplashScreen`, so `Platforms/Android` needs no C# and no `Styles.xml`. An app that
-keeps its own `NativeApplication` sets `<ReactorAndroidEntry>false</ReactorAndroidEntry>`
-and returns `ReactorApp.CreateHost<TRoot>()` from its `CreateHost`; with the entry
-left on, such an app fails the build with `REACTORUNO0001`, which names the file.
-
-On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
-block, so on wasm `Run` starts the app and returns, and any code after it runs
-right away. On Android it only records the root and returns. `RunAsync` is there
-for callers that want the host's `Task`; on wasm it never completes.
+Every target starts from one `Program.cs` that calls `ReactorApp.Run<T>()`;
+[The entry point](#the-entry-point) explains how, Android included.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to
@@ -194,6 +179,26 @@ dotnet run -f net10.0-desktop          # desktop window
 dotnet run -f net10.0-browserwasm      # prints a localhost URL — open it
 dotnet run -f net10.0-android          # installs on the connected device, streams logcat
 ```
+
+## The entry point
+
+The samples are **single Uno projects targeting all four heads** — the component
+source is identical everywhere, and so is the entry point: every target calls
+`ReactorApp.Run<T>()` from one `Program.cs` (Uno gives the Apple heads the same
+host-builder shape as desktop). Android never calls `Main` on its own, so the
+package's build targets add the Android Application and launcher Activity
+(`ReactorAndroidEntry`, on by default): the Application runs `Main`, then starts the
+app. They also compile the app with an entry point, which the Android SDK otherwise
+leaves out, and take the launcher icon and splash screen from the app's `UnoIcon` and
+`UnoSplashScreen`, so `Platforms/Android` needs no C# and no `Styles.xml`. An app that
+keeps its own `NativeApplication` sets `<ReactorAndroidEntry>false</ReactorAndroidEntry>`
+and returns `ReactorApp.CreateHost<TRoot>()` from its `CreateHost`; with the entry
+left on, such an app fails the build with `REACTORUNO0001`, which names the file.
+
+On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
+block, so on wasm `Run` starts the app and returns, and any code after it runs
+right away. On Android it only records the root and returns. `RunAsync` is there
+for callers that want the host's `Task`; on wasm it never completes.
 
 ## Architecture
 
@@ -455,7 +460,7 @@ to run (`--non-interactive` stops instead).
 
 The samples are single Uno projects whose `net10.0-android` and `net10.0-ios`
 heads run as-is; no separate mobile head project is needed. Only the entry point
-is platform-specific (see [Status](#status)), and the framework code itself is
+is platform-specific (see [The entry point](#the-entry-point)), and the framework code itself is
 platform-agnostic `Microsoft.UI.Xaml`. Deploy commands are in
 [samples/Uno](../../samples/Uno/README.md#android--ios).
 
