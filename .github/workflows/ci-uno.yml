@@ -25,7 +25,7 @@ name: CI (Uno)
 #
 # Microsoft's own workflows (ci.yml, release.yml, ...) stay in the tree for upstream syncs, but are
 # disabled on this fork: upstream-sync.yml switches off every workflow not in its KEEP list, so a
-# new workflow file of ours goes in that list (src/Reactor.Uno/README.md, "Our workflows on this fork").
+# new workflow file of ours goes in that list (src/Reactor.Uno/MAINTAINING.md, "Our workflows on this fork").
 
 on:
   push:
