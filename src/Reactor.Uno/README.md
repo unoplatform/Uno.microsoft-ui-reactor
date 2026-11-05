@@ -344,70 +344,47 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 
 ## Hot Reload
 
-**Yes — editing a `Component.Render()` body updates the running app, and
-`UseState` survives.** Verified on Skia desktop:
-
-```
-dotnet watch ⌚ File updated: .\Program.cs
-dotnet watch 🔥 C# and Razor changes applied in 424ms.
-```
-…with the counter still reading the value it held before the edit.
-
-### How it composes with Uno's Hot Reload
-
-Reactor does **not** implement a competing mechanism. `Hosting/HotReloadService.cs`
-(source-shared from the Windows framework) registers the standard
-
-```csharp
-[assembly: MetadataUpdateHandler(typeof(HotReloadService))]
-```
-
-and Uno's own `ClientHotReloadProcessor` registers itself the same way. They are
-peers on one runtime mechanism, not layers. Crucially, Uno's `HotReloadAgent`
-scans **every** loaded assembly for `MetadataUpdateHandlerAttribute` and invokes
-what it finds:
-
-```csharp
-// Uno.UI.RemoteControl/HotReload/MetadataUpdater/HotReloadAgent.cs
-handlerActions.ClearCache.ForEach(a => a(updatedTypes));
-handlerActions.UpdateApplication.ForEach(a => a(updatedTypes));
-```
-
-So on the targets where the Uno **Dev Server** delivers the deltas rather than
-`dotnet watch` — WebAssembly, Android, iOS — Uno drives Reactor's re-render with
-no Reactor-specific handler. Verified on WebAssembly, on an Android phone and on
-the iOS Simulator: edits apply in the running app and `UseState` survives.
-On iOS the app has to be launched with `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in
-its environment; the samples README has the
-[commands](../../samples/Uno/README.md#ios-simulator).
-
-For that, the app has to connect to the Dev Server. A XAML Uno app does it from
-its `App.xaml`'s generated code, which calls
-`RemoteControlClient.Initialize(GetType())`. A Reactor app has no `App.xaml`, so
-Reactor's host makes the same call when it creates its `Application`. It passes
-the root component type (or the render function's declaring type), because the
-build stamps the Dev Server's address on the app's assembly. The client ships
-only in Debug builds, so in Release there is nothing to call and nothing happens.
-An app that calls `Initialize` itself is left alone.
-
-Nothing has to be opted into for this. There is **no `HotReload` UnoFeature**
-(passing one just warns `Unable to parse 'hotreload' to a known Uno Feature` and
-is ignored); the dev-server client `Uno.WinUI.DevServer` / `Uno.UI.RemoteControl`
-is referenced automatically for Debug builds, and the Dev Server process itself is
-started by the IDE. `.UseStudio()` is not needed for Reactor's re-render. It turns
-on **Hot Design**, Uno's runtime *XAML* visual designer, which does not apply to a
-XAML-free framework like Reactor. It also registers the window for Uno's own Hot
-Reload client, and without that Uno reports each edit as failed, even though Reactor
-has re-rendered. See [Known issues](HOT-RELOAD.md#uno-reports-every-reactor-edit-as-failed).
-
-[HOT-RELOAD.md](HOT-RELOAD.md) has the full picture: what Reactor's Hot Reload does
-on its own, what the Uno Dev Server adds, support by launch method, and the
-[known issues](HOT-RELOAD.md#known-issues) with their workarounds.
-
-On an update Reactor re-renders the whole tree with `force: true` (bypassing memo),
+**Editing a component updates the running app, and its state survives.**
+Reactor's [`HotReloadService`](../Reactor/Hosting/HotReloadService.cs), source-shared
+from the Windows framework, is a standard `[assembly: MetadataUpdateHandler]`. On
+each update it re-renders the whole tree with `force: true` (bypassing memo),
 migrates hook cells whose types were edited, and treats a `HookOrderException` as
-"the edit changed the hook shape" — it drops that context's hook state and
+"the edit changed the hook shape": it drops that component's hook state and
 remounts instead of showing the error overlay.
+
+It works with whatever delivers the change to the running app:
+
+- **`dotnet watch`**, on desktop. Verified; see [below](#from-the-command-line).
+- **The Uno Dev Server**, started by the IDE or with `uno-devserver start`, on every
+  target. Uno's `HotReloadAgent` calls every `MetadataUpdateHandler` in the app, so
+  Reactor's re-render needs no Uno-specific handler. Verified on WebAssembly, an
+  Android phone, the iOS Simulator and desktop.
+- **Visual Studio**: expected, not tried.
+
+Nothing has to be opted into. There is **no `HotReload` UnoFeature** (passing one
+just warns `Unable to parse 'hotreload' to a known Uno Feature` and is ignored), and
+Uno.Sdk references the Dev Server client in Debug builds only. A XAML app connects
+to the Dev Server from its `App.xaml`'s generated code; a Reactor app has no
+`App.xaml`, so Reactor's host makes the same `RemoteControlClient.Initialize` call
+when it creates its `Application`, passing the root component type, whose assembly
+carries the Dev Server's address. In Release there is nothing to call and nothing
+happens.
+
+Some of Uno's tooling doesn't understand a Reactor app yet. The ones you're most
+likely to hit:
+
+- **Uno reports each edit as failed**, although Reactor has re-rendered, because no
+  window is registered with Uno's Hot Reload client. Register it in Debug builds.
+- **The Uno App MCP doesn't see the app**, so an AI agent can edit the code but not
+  drive the app or check an edit.
+- **A desktop app started with `dotnet run` refuses every edit** without
+  `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment. IDEs and `dotnet watch`
+  set it.
+
+[HOT-RELOAD.md](HOT-RELOAD.md) has the full picture: support by launch method, how
+Reactor and Uno split the work, and every [known issue](HOT-RELOAD.md#known-issues)
+with its workaround. `.UseStudio()` isn't needed: it turns on Hot Design, Uno's
+runtime *XAML* designer, which doesn't support Reactor apps yet.
 
 ### From the command line
 
@@ -431,6 +408,15 @@ against 5 with the override), and that has failed every edit with
 three of the four targets, with the samples' earlier `Program.cs`. The override
 has worked in every case tried. Without either, `dotnet watch` asks which target
 to run (`--non-interactive` stops instead).
+
+**With the Uno Dev Server instead**, which every target can use: start it with
+`uno-devserver start` from a folder holding a solution, *before* building, since it
+writes its port into the project's `.csproj.user` and the build stamps that port on
+the app. On desktop, start the app with `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its
+environment. The samples README has the
+[commands](../../samples/Uno/README.md#ios-simulator), and
+[HOT-RELOAD.md](HOT-RELOAD.md#new-unoapp-reactor-apps-have-no-solution-file) covers
+apps made from the template, which come without a solution.
 
 ## Known limitations / notes
 
