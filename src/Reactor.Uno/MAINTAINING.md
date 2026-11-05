@@ -64,10 +64,8 @@ you can do without it:
 | `src/Reactor/Core/Reconciler.cs` | Without implicit animations, the paths that set or clear them (`.Animate()`, `.LayoutAnimation()`, `.Stagger()`, implicit transitions) return early, so the change snaps | Same as `AnimationCapabilities.cs`. | Uno implements `ImplicitAnimationCollection` ([uno-private#1898](https://github.com/unoplatform/uno-private/issues/1898)). |
 | `src/Reactor/Animation/AnimationHelper.cs`, `src/Reactor/Core/Navigation/TransitionEngine.cs` | A `Curve.Spring()` plays as a 300 ms decelerating ease without spring animations | Same as `AnimationCapabilities.cs`. | Uno implements springs ([uno-private#1891](https://github.com/unoplatform/uno-private/issues/1891)) **and** its `CompositionScopedBatch` tracks them ([uno-private#1901](https://github.com/unoplatform/uno-private/issues/1901)); until both ship, exit transitions would finish before their springs settle. |
 
-The shared source has no `#if REACTOR_UNO` blocks. A guard around
-`Hyperlink.UnderlineStyle` was removed once Uno made `UnderlineStyleProperty` public
-([unoplatform/uno#23652](https://github.com/unoplatform/uno/issues/23652),
-`Uno.Sdk 6.7.0-dev.117`).
+The shared source has no `#if REACTOR_UNO` blocks: avoid them as much as
+possible, and use the workarounds above instead.
 
 ## Our workflows on this fork
 
