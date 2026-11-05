@@ -4,7 +4,7 @@ name: Label upstream file changes
 # Microsoft's files, and removes the label once it no longer does.
 #
 # "Microsoft's files" is every path outside our own, whatever the file type: the "Ours" list in
-# src/Reactor.Uno/README.md ("What's ours, what's Microsoft's"), copied into OURS below. Checking
+# src/Reactor.Uno/MAINTAINING.md ("What's ours, what's Microsoft's"), copied into OURS below. Checking
 # paths instead of file types also catches Microsoft's .csproj, .md, .json and workflow files, and
 # a new file added under one of their folders (src/Reactor/, docs/, tests/, ...), which is still
 # theirs to sync. Every such change has to be merged again, and can conflict, on each sync.
@@ -42,7 +42,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           LABEL: warning/touches-upstream
-          # Our paths, from the "Ours" list in src/Reactor.Uno/README.md: keep the two in sync.
+          # Our paths, from the "Ours" list in src/Reactor.Uno/MAINTAINING.md: keep the two in sync.
           # An entry ending in `/` is a folder (keep the slash: `src/Reactor.Uno` would also match
           # `src/Reactor.Uno.Foo/`), any other entry is one file.
           OURS: |
@@ -106,7 +106,7 @@ jobs:
             fi
             {
               echo "### Changes Microsoft's files: labeled \`${LABEL}\`"
-              echo "Each change to these has to be merged again, and can conflict, on every upstream sync: see \"What's ours, what's Microsoft's\" in src/Reactor.Uno/README.md."
+              echo "Each change to these has to be merged again, and can conflict, on every upstream sync: see \"What's ours, what's Microsoft's\" in src/Reactor.Uno/MAINTAINING.md."
               echo '```'
               printf '%s' "$microsoft"
               echo '```'

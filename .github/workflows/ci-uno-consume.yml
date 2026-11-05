@@ -15,7 +15,7 @@ name: CI (Uno) - consume the package
 #     Uno.Templates' CI.
 #
 # This file is in upstream-sync.yml's KEEP list: the nightly sync switches off every workflow
-# that isn't (src/Reactor.Uno/README.md, "Our workflows on this fork").
+# that isn't (src/Reactor.Uno/MAINTAINING.md, "Our workflows on this fork").
 
 on:
   workflow_call:

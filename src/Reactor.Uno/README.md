@@ -40,8 +40,8 @@ left on, such an app fails the build with `REACTORUNO0001`, which names the file
 
 On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
 block, so on wasm `Run` starts the app and returns, and any code after it runs
-right away. On Android it only records the root and returns. `RunAsync` is there for callers that want the host's `Task`; on wasm
-it never completes.
+right away. On Android it only records the root and returns. `RunAsync` is there
+for callers that want the host's `Task`; on wasm it never completes.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to
@@ -55,24 +55,34 @@ Uno's `unoapp-reactor` template creates a single Uno project for desktop,
 WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature:
 
 ```bash
-dotnet new install Uno.Templates@7.0.0-dev.104
+dotnet new install Uno.Templates@7.0.0-dev.119
 dotnet new unoapp-reactor -n MyApp
 cd MyApp
 dotnet run -f net10.0-desktop
 ```
 
-`7.0.0-dev.104` is the first `Uno.Templates` with the template; later ones work
-too. The generated `.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
+`7.0.0-dev.119` is the first `Uno.Templates` whose app starts on Android from
+`Program.cs`, like every other target; later ones work too. The generated
+`.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
 and no `PackageReference`: the Uno.Sdk pinned in its `global.json` picks the
 [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor)
 version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
 
+The template first shipped in `7.0.0-dev.104`. Up to `7.0.0-dev.115` it gives the
+app its own Android `Application` in `Platforms/Android`, because the package
+those Uno.Sdks bring has no Android entry. Moving such an app to Uno.Sdk
+`7.0.0-dev.119` or later stops the build with `REACTORUNO0001`, whose message
+says what to delete or which property to set.
+
 To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
-and pin Uno.Sdk `7.0.0-dev.104` or later, the one the template ships with, in its
-`global.json` (or in the project: `<Project Sdk="Uno.Sdk/x.y.z">`). The
-feature first shipped in Uno.Sdk `7.0.0-dev.97`; an older Uno.Sdk ignores it
-silently, and the build fails with `CS0234` on `Microsoft.UI.Reactor`.
+and pin Uno.Sdk `7.0.0-dev.119` or later in its `global.json` (or in the project:
+`<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in Uno.Sdk
+`7.0.0-dev.97`; an older Uno.Sdk ignores it silently, and the build fails with
+`CS0234` on `Microsoft.UI.Reactor`. From `7.0.0-dev.97` to `7.0.0-dev.115` the
+package comes without the Android entry, so `ReactorApp.Run` in `Program.cs`
+never runs on Android: the app needs its own `NativeApplication` that returns
+`ReactorApp.CreateHost<TRoot>(...)` from `CreateHost`.
 
 ## Quick start — a file-based, single-file Reactor app
 
@@ -126,7 +136,7 @@ dotnet run Counter.cs
 The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk`
 takes its version from the repo-root [`global.json`](../../global.json),
 the one nearest the file. Outside the repo, delete the `#:project` line,
-put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.104` or later
+put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.119` or later
 (or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add `Reactor` to
 the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
 [package readme](PackageReadme.md#a-single-file-app) shows.
@@ -170,9 +180,13 @@ Here the `#:project` line builds those targets from source. Outside the repo, th
 come with the package, which needs Uno.Sdk `7.0.0-dev.119` or later: an older
 Uno.Sdk brings a version of the package without them, so the app is never installed.
 
+### Every target from one project
+
+A single file targets one TFM at a time; a project can target them all.
 [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
-multi-targeted project that runs on all of them from one source, with the same
-`ReactorApp.Run` call on each:
+multi-targeted project that runs on each from one source, with the same
+`ReactorApp.Run` call on each (iOS, which needs a Mac to run, is in
+[samples/Uno](../../samples/Uno/README.md#android--ios)):
 
 ```bash
 cd samples/Uno/ReactorUnoCounter
@@ -188,32 +202,45 @@ The port lives under the repo's conventional `src/` and `samples/` folders, but
 the Windows / Windows App SDK build infrastructure — the repo-root
 `Directory.Build.props` imports `Reactor.targets` and pins WinAppSDK, and the
 root `Directory.Packages.props` turns Central Package Management on. MSBuild
-stops walking up at the nearest match, so these shadow files pin the `Uno.Sdk`
-and turn CPM off for the Uno projects only; the Windows framework build is
-untouched (and the Uno projects stay out of the main `Reactor.slnx`, so CI never
-restores them). Which files are ours and which are Microsoft's is listed in
-[What's ours, what's Microsoft's](#whats-ours-whats-microsofts).
+stops walking up at the nearest match, so these shadow files stop that
+inheritance and turn CPM off for the Uno projects only; the `Uno.Sdk` itself is
+pinned only in the repo-root `global.json`. The Windows framework build is
+untouched, and the Uno projects stay out of Microsoft's `Reactor.slnx`, so
+Microsoft's CI never restores them. Which files are ours and which are
+Microsoft's, and which workflows run on this fork, is in
+[MAINTAINING.md](MAINTAINING.md).
 
 ```
 src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft.UI.Reactor)
   Reactor.Uno.csproj        # shares ../Reactor source, targets Uno TFMs
   GlobalUsings.cs           # disambiguation aliases (see below)
+  ElementFactoryShim.cs     # lets Uno's ItemsRepeater take Reactor's ElementFactory<T>
+  WinRTShims.cs             # CsWinRT types the shared source names but Uno lacks
+  GlobalizationShims.cs     # Language.IsWellFormed, which Uno only stubs
   Hosting/
     ReactorApp.cs           # ReactorApp.Run / RunAsync + the static surface the core needs
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
     ReactorHost.cs          # the render loop (reconcile → Window.Content → effects)
     Windowing.cs            # minimal ReactorWindow + windowing types for the shared hooks
+    ReactorAndroidApplication.cs  # Android: runs the app's Main from the Application
+    DevServerConnection.cs  # connects to the Uno Dev Server for Hot Reload
+    SafeAreaEdges.cs        # which edges the mobile safe-area padding keeps clear
+    ReactorHostControl.cs · WindowIcon.cs  # Uno stand-ins for excluded Windows types
+  buildTransitive/          # package build targets: the Android entry (ReactorAndroidEntry),
+                            #   single-file Android install, launcher icon / splash
+  PackageReadme.md          # the nuget.org readme
   nuget.config              # nuget.org (self-contained restore)
   Directory.Build.props     # stops inheritance of the repo-root Windows build infra
   Directory.Packages.props  # CPM off for this project
 
-samples/Uno/                # Uno samples — one shared isolation set for all three
+samples/Uno/                # Uno samples — one shared isolation set for all of them
   nuget.config · Directory.Build.props · Directory.Packages.props
-  ReactorUnoCounter/        # normal Uno single-project app (desktop + wasm)
+  ReactorUnoCounter/        # minimal Uno single-project app (desktop, wasm, android, ios)
   ReactorUnoShowcase/       # larger showcase app
+  ReactorGalleryUno/        # the Reactor gallery, sharing samples/ReactorGallery's source
   file-based/Counter.cs     # the single-file app
 
-Reactor.Uno.slnx            # dedicated solution (kept out of the main Reactor.slnx)
+Reactor.Uno.slnx            # dedicated solution (kept out of Microsoft's Reactor.slnx)
 ```
 
 ### Source sharing
@@ -237,8 +264,8 @@ to emit the control descriptors, exactly as in the Windows build.
 > glob that matches zero files is completely silent in MSBuild, so when Track B
 > moved those three subsystems the port lost 74 files with a green build. The
 > `VerifySharedSourceRoots` target in `Reactor.Uno.csproj` now fails the build if
-> any shared root stops existing; `ci-uno.yml` is path-gated on both
-> `src/Reactor/**` and `src/Reactor.Advanced/**`.
+> any shared root stops existing, and `ci-uno.yml` has no path filter, so a
+> change under `src/Reactor/` or `src/Reactor.Advanced/` builds the port too.
 
 The assembly is named **`Reactor`** with root namespace
 **`Microsoft.UI.Reactor`** — identical to the Windows package — so consumer
@@ -265,104 +292,11 @@ is **not** shared; this project provides a slim Uno hosting layer instead:
 Win32), the Windows shell integration (tray/jumplist/taskbar),
 window persistence, and the in-app devtools menu.
 
-### What's ours, what's Microsoft's
-
-This repository is a fork of
-[microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor).
-`upstream-sync.yml` merges Microsoft's `main` into `uno` every night, so every
-line of theirs we change has to be merged again, and can conflict, on every sync.
-
-**Don't modify Microsoft's files.** The port's code, build settings and docs go
-in the paths below. When shared source doesn't compile on Uno, work around it
-from this project: a `<Compile Remove>` in `Reactor.Uno.csproj`, a shim under
-`src/Reactor.Uno/`, an alias in `GlobalUsings.cs`, or a build setting in
-`Directory.Build.props`. If the fix really belongs in Microsoft's code, send it to
-their repository and let the sync bring it in.
-
-Ours:
-
-```
-src/Reactor.Uno/                     # the port library
-samples/Uno/                         # the Uno samples
-Reactor.Uno.slnx                     # the port's solution
-version.json                         # Nerdbank.GitVersioning, for the Uno package
-.github/actions/nuget-org-publish/
-.github/actions/nuget-uno-publish/
-.github/actions/tag-release/
-.github/scripts/uno/                 # scripts the Uno CI runs
-.github/workflows/ci-uno.yml
-.github/workflows/ci-uno-consume.yml
-.github/workflows/conventional-commits.yml
-.github/workflows/label-upstream-files.yml
-.github/workflows/upstream-sync.yml
-```
-
-Everything else is Microsoft's. That includes the shared source the port
-compiles (`src/Reactor/`, `src/Reactor.Advanced/`), the root build files
-(`Directory.Build.props`, `Directory.Packages.props`, `Reactor.slnx`,
-`global.json`), `AGENTS.md`, `docs/`, `tests/`, and their workflows in
-`.github/workflows/`. Those workflows stay in the tree so the sync merges cleanly,
-but they are switched off on this fork (see [below](#our-workflows-on-this-fork)).
-
-A pull request into `uno` that changes any of Microsoft's files, of any type, gets
-the `warning/touches-upstream` label (`label-upstream-files.yml`), and loses it once
-it no longer does. The workflow keeps its own copy of the list above in `OURS`: a path
-added here goes there too, or the workflow counts it as Microsoft's.
-
-These Microsoft files are modified today. Don't add to the list, and remove an
-entry when you find a way to do without it:
-
-| File | Change | Why it isn't in our paths |
-|---|---|---|
-| `README.md` | An Uno Platform section at the top | GitHub shows the root README on the fork's front page. |
-| `global.json` | An `msbuild-sdks` pin for `Uno.Sdk` | It's the port's only Uno.Sdk pin: `Reactor.Uno.slnx` sits at the root, and every Uno project and `Counter.cs` below it reads this file too. A second `global.json` under the port would win for builds started inside it and could drift from this one. No Windows project uses `Uno.Sdk`, so the pin doesn't affect the Windows build. |
-| `src/Reactor/Core/Reconciler.Mount.cs` | `return null` → `return default` in a generic helper | Satisfies Uno's nullable analysis. Behaves the same on Windows, since `T` is constrained to a reference type. |
-
-The shared source has no `#if REACTOR_UNO` blocks. A guard around
-`Hyperlink.UnderlineStyle` was removed once Uno made `UnderlineStyleProperty` public
-([unoplatform/uno#23652](https://github.com/unoplatform/uno/issues/23652),
-`Uno.Sdk 6.7.0-dev.117`).
-
 When the shared source calls something Uno doesn't have, or only stubs, this project
 declares a stand-in under the same full name, which the compiler picks over the imported
 one: `WinRTShims.cs` for CsWinRT's attributes, `GlobalizationShims.cs` for
 `Windows.Globalization.Language.IsWellFormed` (Uno's throws `NotImplementedException`).
 Delete a stand-in once Uno implements the real member.
-
-### Our workflows on this fork
-
-Microsoft's workflows can't be switched off once and for all: GitHub only lists a
-workflow after its trigger first fires, and every sync can bring new ones. So a
-separate job in `upstream-sync.yml`, "Keep Microsoft's workflows off", runs with
-each nightly sync (04:00 UTC). It lists the repository's active workflows and
-switches off every one whose file name isn't in its `KEEP` list; GitHub's
-built-in workflows (`dynamic/…`, such as Code Quality) are left alone. The run's
-summary says how many it switched off.
-
-That makes `KEEP` the list of workflows this fork runs:
-
-- **A new workflow file of ours goes in `KEEP`** in the pull request that adds it,
-  and in the "Ours" list above (and `OURS` in `label-upstream-files.yml`).
-  Otherwise the next nightly run switches it off, and a switched-off workflow no
-  longer runs on its triggers. Renaming one is the
-  same: rename it in `KEEP` too.
-- **Called workflows too** (`on: workflow_call`, such as `ci-uno-consume.yml`).
-  GitHub doesn't document whether it lists them, nor whether a switched-off one
-  still runs when another workflow calls it (a
-  [community report](https://github.com/orgs/community/discussions/60389) says it
-  does), and the summary would count it as one of Microsoft's.
-- **The job only switches workflows off.** Adding a file to `KEEP` after the
-  fact doesn't turn it back on: do that from the Actions tab, or with
-  `gh workflow enable <file name> -R unoplatform/Uno.microsoft-ui-reactor`.
-- **Until that pull request merges**, the nightly run reads `KEEP` from `uno`,
-  which doesn't have the new file yet. If GitHub lists the file after a run on
-  the pull request's branch, the job can switch it off before the merge. After
-  merging, check `gh workflow list --all` and turn it back on if it shows as
-  disabled.
-- **To see what it would switch off** without changing anything, run "Sync
-  upstream into uno" by hand with `dry_run` (`gh workflow run upstream-sync.yml
-  -f dry_run=true`): it logs `would switch off <path>` for each, and the sync job
-  makes no changes either.
 
 ### Name disambiguation (`GlobalUsings.cs`)
 
@@ -383,8 +317,8 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Core controls: Button, TextBlock, TextBox, ToggleSwitch, Slider, ProgressBar, CheckBox, ComboBox, ScrollView | ✅ | Sample-verified (desktop + wasm). |
 | Theming (Light/Dark) + live theme-change re-render | ✅ | |
 | Implicit animations & transitions (`.Animate()`, `.LayoutAnimation()`, `.Stagger()`, Scale/Rotation/Opacity/Translation transitions, spring / natural-motion) | 🟡 | Uno doesn't implement `ImplicitAnimationCollection` or spring animations. Reactor checks once whether they exist: without them `.Animate()`, `.LayoutAnimation()` and `.Stagger()` don't animate (the change snaps), and a `Curve.Spring()` plays as a 300 ms decelerating ease. Enter/exit `.Transition()`s and `.Keyframes()` use explicit keyframe animations, which Uno implements. |
-| RichTextBlock / rich inline text / Markdown rendering | 🟡 | Most `RichTextBlock` members are not implemented in Uno; rich text and Markdown render incompletely. |
-| RichEditBox | ❌ | Not implemented in Uno. |
+| RichTextBlock / rich inline text / Markdown rendering | 🟡 | Most `RichTextBlock` members are not implemented in Uno, so rich text renders incompletely. Markdown is source-shared from `Reactor.Advanced` and compiles, but renders through `RichTextBlock`, so its output is incomplete too. |
+| RichEditBox | ✅ | Plain-text editing through `Document.GetText`/`SetText` and `TextChanged`. Verified on desktop, WebAssembly and Android. |
 | Custom TitleBar (drag regions, back button, panes) | ❌ | Not implemented in Uno. |
 | Virtualized lists: `LazyVStack` / `LazyHStack`, `ItemsRepeater`, `ItemsView` (incl. `LinedFlowLayout`) | ✅ | Uno's `ItemsRepeater` only accepts its own `IElementFactoryShim`, so on Uno Reactor's `ElementFactory<T>` implements it too (`ElementFactoryShim.cs`). |
 | ListBox | ❌ | Uno's `ListBox` shows no items: its default template realizes nothing and it creates no `ListBoxItem` containers, so items can't be clicked or selected. `SelectedItems` isn't implemented either, so `OnSelectionChanged` can't work until Uno's `ListBox` does. Use `ListView` instead. |
@@ -406,8 +340,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Window drag-move, aspect-ratio lock | ❌ | Still no-op stubs — **not yet audited** against Uno's API surface (multi-window, DPI, pickers and closing guards all turned out to be implementable, so these may be too). |
 | Docking (dock manager, tab tear-off, floating windows, splitters) | ❌ | Excluded from the port entirely. |
 | In-app devtools | ❌ | `DevtoolsEnabled` is `false`. |
-| Charting / DataGrid / PropertyGrid | 🟡 | Source-shared from `Reactor.Advanced` and compiling on all three TFMs; render path shared with WinUI, but not yet runtime-verified on Skia. |
-| Markdown rendering | 🟡 | Source-shared from `Reactor.Advanced`. Compiles, but depends on `RichTextBlock`, which Uno implements only partially — so rich output renders incompletely. |
+| Charting / DataGrid / PropertyGrid | 🟡 | Source-shared from `Reactor.Advanced` and compiling on all four TFMs; render path shared with WinUI, but not yet runtime-verified on Skia. |
 
 > The ❌ / 🟡 runtime rows line up with the `Uno0001` *not-implemented* build warnings: the code compiles, but those specific APIs no-op (or throw) on Uno. They don't affect the ✅ rows.
 
@@ -497,9 +430,12 @@ to run (`--non-interactive` stops instead).
 
 ## Known limitations / notes
 
-- **Uno version.** The port needs Uno **6.7+** APIs (the `TitleBar` drag-region APIs)
-  and tracks the Uno **7.0** pre-release pinned in the repo-root `global.json`,
-  which the projects and the file-based `Counter.cs` all read. Uno 7.0 renamed the runtime
+- **Uno version.** Apps need Uno.Sdk **`7.0.0-dev.119`** or later, the first
+  whose package starts Android apps from `Program.cs` (see
+  [Quick start](#quick-start--a-new-app-from-the-template)); there is no Uno 6.x
+  support. The port itself builds against the Uno **7.0** pre-release
+  pinned in the repo-root `global.json`, which the projects and the file-based
+  `Counter.cs` all read. Uno 7.0 renamed the runtime
   packages (`Uno.WinUI.Runtime.Skia.X11` → `Uno.WinUI.Runtime.X11`, …) and moved the
   Android entry types to `Uno.UI.Runtime.Android`. The runtime packages take their
   version from `$(UnoVersion)`, which **Uno.Sdk supplies**, so they track the SDK

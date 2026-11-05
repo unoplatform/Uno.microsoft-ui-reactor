@@ -12,12 +12,12 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 | [`file-based/Counter.cs`](file-based/Counter.cs) | A whole WinUI-style Reactor app in **one `.cs` file** (`dotnet run Counter.cs`) | desktop; wasm and Android with a header change ([wasm](../../src/Reactor.Uno/README.md#run-on-webassembly-instead), [Android](../../src/Reactor.Uno/README.md#run-on-android-instead)) |
 
 All three app samples are **single Uno projects targeting all four heads** — the
-`Component` source is identical everywhere; only the entry point differs (see
+`Component` source and the `Program.cs` entry point are identical everywhere (see
 [Status](../../src/Reactor.Uno/README.md#status) in the port README).
 
 The samples reference the port as a project (`src/Reactor.Uno`). To use one
 outside this repo, drop that `ProjectReference`, add `Reactor` to `UnoFeatures`,
-and pin Uno.Sdk `7.0.0-dev.104` or later in `global.json`: the Uno.Sdk then brings
+and pin Uno.Sdk `7.0.0-dev.119` or later in `global.json`: the Uno.Sdk then brings
 in [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor).
 For a new app, start from `dotnet new unoapp-reactor` instead (see the port
 README's [quick start](../../src/Reactor.Uno/README.md#quick-start--a-new-app-from-the-template)).
@@ -60,44 +60,6 @@ dotnet run -f net10.0-browserwasm
 Swap `ReactorUnoCounter` for `ReactorUnoShowcase` to run the control showcase, or
 for `ReactorGalleryUno` to run the gallery.
 
-`dotnet run -f net10.0-desktop -- --smoke` runs the counter as CI's runtime check: it
-clicks "+" once, verifies the re-render, checks that an `await` on the UI thread resumes
-there, and exits 0 (pass) or 1 (fail, after 60s).
-It also turns on Uno's `ApiInformation.IsFailWhenNotImplemented` for the whole run, so
-code that calls an API Uno only stubs throws instead of silently doing nothing. A stub
-hit during startup fails the check without a FAIL line: it times out on desktop and
-WebAssembly, and reports the crash on Android.
-For WebAssembly, build with `-f net10.0-browserwasm` and run
-[`.github/scripts/uno/smoke-wasm.ps1`](../../.github/scripts/uno/smoke-wasm.ps1) (PowerShell 7).
-It serves the build, opens it with
-`?smoke` in headless Chrome or Edge, and exits with the result the app logs to the
-browser console. It only looks for the browser in the Windows install folders;
-elsewhere, pass `-Browser <path>`.
-For Android, build an APK that carries its assemblies for the emulator's ABI
-(`-f net10.0-android -p:EmbedAssembliesIntoApk=true -p:RuntimeIdentifier=android-x64`), start
-an emulator, and run
-[`.github/scripts/uno/smoke-android.ps1`](../../.github/scripts/uno/smoke-android.ps1)
-`-Apk <path>`. Android calls `Main` with no arguments, so the script asks for the check with
-`REACTOR_SMOKE=1` through the `debug.mono.env` property, then reads the result from logcat.
-
-[`.github/scripts/uno/smoke-package.ps1`](../../.github/scripts/uno/smoke-package.ps1)
-`-Feed <folder> -Version <version>` is CI's check of the
-single-file app against the **package**, in the form the
-[package readme](../../src/Reactor.Uno/PackageReadme.md#a-single-file-app) shows: it copies
-`Counter.cs` out of the repo, swaps its `#:project` line for the `Reactor` UnoFeature on the
-repo-root `global.json`'s Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that version from
-the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
-UI Automation (Windows, PowerShell 7).
-
-[`.github/scripts/uno/build-package.ps1`](../../.github/scripts/uno/build-package.ps1)
-`-Feed <folder> -Version <version>` does the same for
-the counter **project** on the other heads: it copies the project out of the repo and makes
-the [changes above](#reactor-on-uno-platform--samples) (drops the `ProjectReference`, adds
-`Reactor` to `UnoFeatures`, pins the repo-root Uno.Sdk in `global.json`), sets
-`UnoReactorVersion=<version>`, and builds `net10.0-browserwasm`, `net10.0-android` and
-`net10.0-ios` (pick with `-Framework`). It builds only; Android and iOS need their
-workloads.
-
 ### Android / iOS
 
 The same projects, different heads, and the same `Program.cs`: Android never calls
@@ -115,6 +77,15 @@ dotnet run -f net10.0-android
 # iOS — compiles on Windows; running it needs a Mac
 dotnet build -f net10.0-ios
 ```
+
+> **Don't sideload the Debug APK.** A Debug Android build uses .NET's *Fast
+> Deployment*: the managed assemblies are **not inside the APK** — the deploy
+> tooling pushes them separately to `files/.__override__/`. Installing the APK by
+> hand therefore produces an app that aborts at startup with
+> `No assemblies found in '…/.__override__/arm64-v8a'` (SIGABRT), which the phone
+> reports only as a generic failure. Use `dotnet run`, or build a self-contained APK
+> with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
+> sideload one.
 
 On a Mac, to run on the iOS Simulator, boot a simulator first
 (`xcrun simctl list devices booted` shows it), then build for the simulator and
@@ -148,15 +119,6 @@ first page on the simulator.
 > `-p:ValidateXcodeVersion=false` on the build. The `-f` value and the `bin/` path
 > in the commands change to match. If your Xcode matches your iOS workload, you
 > don't need any of this.
-
-> **Don't sideload the Debug APK.** A Debug Android build uses .NET's *Fast
-> Deployment*: the managed assemblies are **not inside the APK** — the deploy
-> tooling pushes them separately to `files/.__override__/`. Installing the APK by
-> hand therefore produces an app that aborts at startup with
-> `No assemblies found in '…/.__override__/arm64-v8a'` (SIGABRT), which the phone
-> reports only as a generic failure. Use `dotnet run`, or build a self-contained APK
-> with `-p:EmbedAssembliesIntoApk=true` (or `-c Release`) if you really need to
-> sideload one.
 
 ### file-based/Counter.cs
 
@@ -248,3 +210,45 @@ What was run, on the counter:
 > Run on an Intel Mac with Xcode 26.2 (iPhone 17 Pro simulator, iOS 26.3), with
 > the `net10.0-ios26.0` workaround above, `uno.devserver` CLI 6.7.135 and Dev
 > Server host 7.0.0-dev.2347.
+
+## CI checks
+
+What CI runs on the samples, and how to run the same checks locally.
+
+`dotnet run -f net10.0-desktop -- --smoke` runs the counter as CI's runtime check: it
+clicks "+" once, verifies the re-render, checks that an `await` on the UI thread resumes
+there, and exits 0 (pass) or 1 (fail, after 60s).
+It also turns on Uno's `ApiInformation.IsFailWhenNotImplemented` for the whole run, so
+code that calls an API Uno only stubs throws instead of silently doing nothing. A stub
+hit during startup fails the check without a FAIL line: it times out on desktop and
+WebAssembly, and reports the crash on Android.
+For WebAssembly, build with `-f net10.0-browserwasm` and run
+[`.github/scripts/uno/smoke-wasm.ps1`](../../.github/scripts/uno/smoke-wasm.ps1) (PowerShell 7).
+It serves the build, opens it with
+`?smoke` in headless Chrome or Edge, and exits with the result the app logs to the
+browser console. It only looks for the browser in the Windows install folders;
+elsewhere, pass `-Browser <path>`.
+For Android, build an APK that carries its assemblies for the emulator's ABI
+(`-f net10.0-android -p:EmbedAssembliesIntoApk=true -p:RuntimeIdentifier=android-x64`), start
+an emulator, and run
+[`.github/scripts/uno/smoke-android.ps1`](../../.github/scripts/uno/smoke-android.ps1)
+`-Apk <path>`. Android calls `Main` with no arguments, so the script asks for the check with
+`REACTOR_SMOKE=1` through the `debug.mono.env` property, then reads the result from logcat.
+
+[`.github/scripts/uno/smoke-package.ps1`](../../.github/scripts/uno/smoke-package.ps1)
+`-Feed <folder> -Version <version>` is CI's check of the
+single-file app against the **package**, in the form the
+[package readme](../../src/Reactor.Uno/PackageReadme.md#a-single-file-app) shows: it copies
+`Counter.cs` out of the repo, swaps its `#:project` line for the `Reactor` UnoFeature on the
+repo-root `global.json`'s Uno.Sdk plus `#:property UnoReactorVersion=<version>`, restores that version from
+the `-Feed` folder (a `dotnet pack` output) into a private package cache, and clicks "+" over
+UI Automation (Windows, PowerShell 7).
+
+[`.github/scripts/uno/build-package.ps1`](../../.github/scripts/uno/build-package.ps1)
+`-Feed <folder> -Version <version>` does the same for
+the counter **project** on the other heads: it copies the project out of the repo and makes
+the [changes at the top](#reactor-on-uno-platform--samples) (drops the `ProjectReference`, adds
+`Reactor` to `UnoFeatures`, pins the repo-root Uno.Sdk in `global.json`), sets
+`UnoReactorVersion=<version>`, and builds `net10.0-browserwasm`, `net10.0-android` and
+`net10.0-ios` (pick with `-Framework`). It builds only; Android and iOS need their
+workloads.
