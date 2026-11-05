@@ -14,7 +14,11 @@
 
 **Issues:** bugs in the Uno port go here; bugs in Reactor itself go to [microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor/issues).
 
-*Everything below is Microsoft's README, unchanged.*
+*Everything below is Microsoft's README, unchanged. It is written for Windows, so on Uno:*
+
+- *Its counter example runs unchanged in a Uno app or a single-file app.*
+- *Its "Quick start", "Contributing to Reactor itself", "Live preview" and "Sample apps" sections are Windows-only. Use the links above instead. Hot Reload does work, through Uno: see the port README's [Hot Reload](src/Reactor.Uno/README.md#hot-reload).*
+- *In "What's included", Docking, Shell integration, WinForms interop, the Win2D canvas, the in-app DevTools and the Visual Studio preview aren't in the port. The package also ships no analyzers or source generators: Reactor's Roslyn analyzers and localization generator don't run, and `[GenerateReactorWrapper]` on your own controls generates nothing. For the rest, see the [feature support table](src/Reactor.Uno/README.md#feature-support-on-uno-skia).*
 
 ---
 
