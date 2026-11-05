@@ -12,7 +12,7 @@ using static Microsoft.UI.Reactor.Factories;
 // `--smoke` (`?smoke` in the page URL on WebAssembly) is the CI runtime check:
 // click "+" once, verify the re-render, exit.
 ReactorApp.Run<CounterApp>("Reactor Counter (Uno)", width: 480, height: 360,
-    configure: SmokeTest.Requested(args) ? SmokeTest.Start : null);
+    configure: SmokeTest.Arm(args));
 
 class CounterApp : Component
 {

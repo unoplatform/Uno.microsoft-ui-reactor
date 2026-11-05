@@ -11,7 +11,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Reactor.Hosting;
@@ -187,13 +186,13 @@ internal sealed class ReactorApplication : Application
                 e.Handled = handled;
         };
 
-        // Marshal cross-thread setState callbacks back onto the UI thread.
-        var dq = DispatcherQueue.GetForCurrentThread();
-        if (dq is not null)
-        {
-            SynchronizationContext.SetSynchronizationContext(
-                new DispatcherQueueSynchronizationContext(dq));
-        }
+        // No SynchronizationContext here, unlike the Windows host. Every Uno head starts
+        // through Application.Start (Android from AndroidHost, iOS from its app delegate),
+        // and that has already installed Uno's own context,
+        // NativeDispatcherSynchronizationContext, which posts to the UI thread. Uno's
+        // DispatcherQueueSynchronizationContext is a not-implemented stub whose Post drops
+        // the callback: installed here, as WinAppSDK apps do, an await that captured it
+        // never resumed (#2250).
 
         // WinUI control templates/styles.
         try { Resources.MergedDictionaries.Add(new XamlControlsResources()); }
