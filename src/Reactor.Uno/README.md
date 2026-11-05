@@ -48,8 +48,8 @@ dotnet run -f net10.0-desktop
 
 `7.0.0-dev.119` is the first `Uno.Templates` whose app starts on Android from
 `Program.cs`, like every other target; later ones work too. The generated
-`.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
-and no `PackageReference`: the Uno.Sdk pinned in its `global.json` picks the
+`.csproj` lists `Reactor` in `UnoFeatures` and has no `PackageReference`: the
+Uno.Sdk pinned in its `global.json` picks the
 [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor)
 version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
@@ -73,7 +73,6 @@ post, but cross-platform. The whole app is one `.cs` file
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
-#:property UnoFeatures=SkiaRenderer
 #:property PublishAot=false
 #:property PackAsTool=false
 
@@ -114,9 +113,8 @@ The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk
 takes its version from the repo-root [`global.json`](../../global.json),
 the one nearest the file. Outside the repo, delete the `#:project` line,
 put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.119` or later
-(or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add `Reactor` to
-the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
-[package readme](PackageReadme.md#a-single-file-app) shows.
+(or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add a
+`#:property UnoFeatures=Reactor` line, as the [package readme](PackageReadme.md#a-single-file-app) shows.
 
 > **Versus the WinUI version.** The WinUI file-based app uses
 > `#:property TargetFramework=net10.0-windows10.0.22621.0` +

@@ -7,7 +7,7 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 ## Requirements
 
 - A .NET 10 SDK.
-- Uno.Sdk `7.0.0-dev.119` or later, with the Skia renderer. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
+- Uno.Sdk `7.0.0-dev.119` or later. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
 
 ## A new app
 
@@ -43,7 +43,7 @@ and run `dotnet run Counter.cs`:
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
-#:property UnoFeatures=SkiaRenderer;Reactor
+#:property UnoFeatures=Reactor
 #:property PublishAot=false
 #:property PackAsTool=false
 
@@ -79,11 +79,10 @@ The same file runs on WebAssembly and Android: change its `TargetFramework` line
 
 ## In an existing Uno project
 
-Add `Reactor` to `UnoFeatures` in a single Uno project that uses the Skia renderer:
+Add `Reactor` to `UnoFeatures` in a single Uno project:
 
 ```xml
 <UnoFeatures>
-  SkiaRenderer;
   Reactor;
 </UnoFeatures>
 ```
