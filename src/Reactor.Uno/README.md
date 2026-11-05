@@ -157,7 +157,8 @@ Uno.Sdk brings a version of the package without them, so the app is never instal
 
 ### Every target from one project
 
-A single file targets one TFM at a time; a project can target them all.
+A single file targets one TFM at a time; a project can target them all. A single
+file can't run on iOS yet, so for iOS use a project.
 [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
 multi-targeted project that runs on each from one source, with the same
 `ReactorApp.Run` call on each (iOS, which needs a Mac to run, is in
