@@ -54,20 +54,12 @@ and no `PackageReference`: the Uno.Sdk pinned in its `global.json` picks the
 version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
 
-The template first shipped in `7.0.0-dev.104`. Up to `7.0.0-dev.115` it gives the
-app its own Android `Application` in `Platforms/Android`, because the package
-those Uno.Sdks bring has no Android entry. Moving such an app to Uno.Sdk
-`7.0.0-dev.119` or later stops the build with `REACTORUNO0001`, whose message
-says what to delete or which property to set.
-
 To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
 and pin Uno.Sdk `7.0.0-dev.119` or later in its `global.json` (or in the project:
 `<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in Uno.Sdk
 `7.0.0-dev.97`; an older Uno.Sdk ignores it silently, and the build fails with
-`CS0234` on `Microsoft.UI.Reactor`. From `7.0.0-dev.97` to `7.0.0-dev.115` the
-package comes without the Android entry, so `ReactorApp.Run` in `Program.cs`
-never runs on Android: the app needs its own `NativeApplication` that returns
-`ReactorApp.CreateHost<TRoot>(...)` from `CreateHost`.
+`CS0234` on `Microsoft.UI.Reactor`. An app started on an earlier preview is
+covered under [Known limitations](#known-limitations--notes).
 
 ## Quick start — a file-based, single-file Reactor app
 
@@ -448,6 +440,18 @@ to run (`--non-interactive` stops instead).
   They are `PrivateAssets="all"`: Reactor.Uno needs them only to compile its host
   bootstrap, and every Uno.Sdk app head references them itself, so the package
   doesn't list them as dependencies.
+- **Apps made on an earlier preview.** Before `7.0.0-dev.119` the package had no
+  Android entry, so `ReactorApp.Run` in `Program.cs` never ran on Android:
+  - The `unoapp-reactor` template first shipped in `Uno.Templates`
+    `7.0.0-dev.104`. Up to `7.0.0-dev.115` it gives the app its own Android
+    `Application` in `Platforms/Android`.
+  - An app that took the `Reactor` UnoFeature on Uno.Sdk `7.0.0-dev.97` to
+    `7.0.0-dev.115` needs its own `NativeApplication` that returns
+    `ReactorApp.CreateHost<TRoot>(...)` from `CreateHost`.
+
+  Moving such an app to Uno.Sdk `7.0.0-dev.119` or later stops the build with
+  `REACTORUNO0001`, whose message says what to delete or which property to set
+  (see [The entry point](#the-entry-point)).
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
