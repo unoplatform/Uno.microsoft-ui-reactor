@@ -3,16 +3,16 @@
 [Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) is Microsoft's framework for writing WinUI 3 apps the way React works: you build the UI from components and hooks in C#, with no XAML. Microsoft's version runs only on Windows. [Uno Platform](https://platform.uno/) implements the WinUI API on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS, and its Skia renderer draws every control itself, so it looks the same everywhere. This port runs the same Reactor code on all of those targets. It is experimental, like Reactor itself, and a work in progress.
 
 - **Requirements:** a .NET 10 SDK. For WebAssembly, Android or iOS, [uno-check](https://platform.uno/docs/articles/external/uno.check/doc/using-uno-check.html) installs the workloads and SDKs those targets need; desktop needs none.
-- **Package:** [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor) on nuget.org. Prerelease `-dev.N` builds are published from the `uno` branch, and stable releases from `release/stable/*` branches.
 - **Start an app:** `dotnet new install Uno.Templates@7.0.0-dev.119`, then `dotnet new unoapp-reactor -n MyApp`. Keep the version, or use a later one: a plain `dotnet new install Uno.Templates` installs the stable templates, which don't have `unoapp-reactor` yet. Or add `Reactor` to the `UnoFeatures` list in an existing Uno app's `.csproj`. See the port README's [quick start](src/Reactor.Uno/README.md#quick-start--a-new-app-from-the-template), which also covers a single-file app.
 - **Learn Reactor:** Microsoft's [guide](https://microsoft.github.io/microsoft-ui-reactor/) teaches components, hooks and the C# DSL, and that code runs here unchanged. Skip its setup steps (`winapp`, MSIX packaging), which are for Windows; start your app as above. Then check what works on Uno below.
-- **Windows App SDK:** this package doesn't target it; use Microsoft's [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) there.
 - **What works:** the [feature support table](src/Reactor.Uno/README.md#feature-support-on-uno-skia) for Uno Skia.
+- **Windows App SDK:** this package doesn't target it; use Microsoft's [`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor) there.
+- **Package:** [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor) on nuget.org. Prerelease `-dev.N` builds are published from the `uno` branch, and stable releases from `release/stable/*` branches.
 - **Build this repo:** needs .NET SDK 10.0.400 or later, because the port runs Reactor's source generators while it compiles. `dotnet build Reactor.Uno.slnx -f net10.0-desktop` builds the port and its samples; `cd samples/Uno/ReactorUnoCounter && dotnet run -f net10.0-desktop` runs the counter sample. The other samples and targets are in [samples/Uno](samples/Uno/README.md).
 
-**Branches:** `uno` (the default) holds the port and takes the pull requests; this fork's `main` is unused. Microsoft's latest `main` comes in through a nightly sync PR (`.github/workflows/upstream-sync.yml`), auto-merged when the merge is clean. Which files are ours and which workflows run here is in [MAINTAINING.md](src/Reactor.Uno/MAINTAINING.md).
-
 **Issues:** bugs in the Uno port go here; bugs in Reactor itself go to [microsoft/microsoft-ui-reactor](https://github.com/microsoft/microsoft-ui-reactor/issues).
+
+**Branches:** `uno` (the default) holds the port and takes the pull requests; this fork's `main` is unused. Microsoft's latest `main` comes in through a nightly sync PR (`.github/workflows/upstream-sync.yml`), auto-merged when the merge is clean. Which files are ours and which workflows run here is in [MAINTAINING.md](src/Reactor.Uno/MAINTAINING.md).
 
 *Everything below is Microsoft's README, unchanged. It is written for Windows, so on Uno:*
 
