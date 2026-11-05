@@ -6,12 +6,12 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 
 ## Requirements
 
-- The .NET SDK 10.0.400 or later.
-- Uno.Sdk `7.0.0-dev.119` or later, with the Skia renderer. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
+- A .NET 10 SDK.
+- Uno.Sdk `7.0.0-dev.119` or later. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
 
 ## A new app
 
-Install the Uno templates and create an app from `unoapp-reactor`:
+Install the Uno templates and create an app from `unoapp-reactor`, from the command line (Visual Studio's New Project dialog doesn't list this template):
 
 ```bash
 dotnet new install Uno.Templates@7.0.0-dev.119
@@ -43,7 +43,7 @@ and run `dotnet run Counter.cs`:
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
-#:property UnoFeatures=SkiaRenderer;Reactor
+#:property UnoFeatures=Reactor
 #:property PublishAot=false
 #:property PackAsTool=false
 
@@ -72,18 +72,17 @@ class CounterApp : Component
 
 The `#:sdk` line takes the Uno.Sdk version, and with it the Reactor version, from the nearest `global.json` in the file's folder or above. To keep the file on its own instead, name the version on the line: `#:sdk Uno.Sdk@x.y.z`.
 
-The same file runs on WebAssembly and Android: change its `TargetFramework` line and keep the rest.
+The same file runs on WebAssembly and Android: change its `TargetFramework` line and keep the rest. A single file can't run on iOS yet: for iOS, create an app from the template.
 
 - WebAssembly: `#:property TargetFramework=net10.0-browserwasm`. `dotnet run Counter.cs` then prints a localhost URL to open.
 - Android: `#:property TargetFramework=net10.0-android`. With a device or emulator connected, `dotnet run Counter.cs` installs the app, starts it, and streams its logcat.
 
 ## In an existing Uno project
 
-Add `Reactor` to `UnoFeatures` in a single Uno project that uses the Skia renderer:
+Add `Reactor` to `UnoFeatures` in a single Uno project:
 
 ```xml
 <UnoFeatures>
-  SkiaRenderer;
   Reactor;
 </UnoFeatures>
 ```

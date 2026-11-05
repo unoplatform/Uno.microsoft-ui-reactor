@@ -51,15 +51,27 @@ try {
     $referencePattern = '(?m)^[ \t]*<ProjectReference Include="[^"]*Reactor\.Uno\.csproj"\s*/>\r?\n'
     $null = Get-OneMatch $csproj $referencePattern 'ProjectReference to Reactor.Uno.csproj'
     $featuresPattern = '(?s)(<UnoFeatures>)(.*?)(\s*</UnoFeatures>)'
-    $features = Get-OneMatch $csproj $featuresPattern 'UnoFeatures property'
-    if ($features.Groups[2].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'ReactorUnoCounter.csproj already has the Reactor feature' }
+    $features = [regex]::Matches($csproj, $featuresPattern)
+    if ($features.Count -gt 1) { throw "Expected at most one UnoFeatures property, found $($features.Count)" }
+    if ($features.Count -eq 1 -and $features[0].Groups[2].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'ReactorUnoCounter.csproj already has the Reactor feature' }
     $csproj = [regex]::Replace($csproj, $referencePattern, '')
-    $csproj = [regex]::Replace($csproj, $featuresPattern, {
-            param($m)
-            $list = $m.Groups[2].Value.TrimEnd()
-            if ($list -and -not $list.EndsWith(';')) { $list += ';' }
-            "$($m.Groups[1].Value)$($list)Reactor;$($m.Groups[3].Value)`n    <UnoReactorVersion>$Version</UnoReactorVersion>"
-        })
+    if ($features.Count -eq 1) {
+        $csproj = [regex]::Replace($csproj, $featuresPattern, {
+                param($m)
+                $list = $m.Groups[2].Value.TrimEnd()
+                if ($list -and -not $list.EndsWith(';')) { $list += ';' }
+                "$($m.Groups[1].Value)$($list)Reactor;$($m.Groups[3].Value)`n    <UnoReactorVersion>$Version</UnoReactorVersion>"
+            })
+    }
+    else {
+        # The sample lists no UnoFeatures: add them at the end of its first PropertyGroup.
+        $groupEnd = '(?m)^([ \t]*)</PropertyGroup>'
+        if (-not [regex]::IsMatch($csproj, $groupEnd)) { throw 'Expected a PropertyGroup in ReactorUnoCounter.csproj' }
+        $csproj = ([regex]$groupEnd).Replace($csproj, {
+                param($m)
+                "$($m.Groups[1].Value)  <UnoFeatures>Reactor;</UnoFeatures>`n$($m.Groups[1].Value)  <UnoReactorVersion>$Version</UnoReactorVersion>`n$($m.Value)"
+            }, 1)
+    }
     Set-Content $csprojPath $csproj -NoNewline
     Write-Host 'ReactorUnoCounter.csproj:'
     Get-Content $csprojPath | ForEach-Object { Write-Host "  $_" }

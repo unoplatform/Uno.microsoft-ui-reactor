@@ -25,23 +25,8 @@ Mac Catalyst and tvOS are out of scope. Uno dropped Mac Catalyst from its templa
 in 6.0 and recommends `net10.0-desktop` for macOS, which the desktop head already
 covers.
 
-The samples are **single Uno projects targeting all four heads** — the component
-source is identical everywhere, and so is the entry point: every target calls
-`ReactorApp.Run<T>()` from one `Program.cs` (Uno gives the Apple heads the same
-host-builder shape as desktop). Android never calls `Main` on its own, so the
-package's build targets add the Android Application and launcher Activity
-(`ReactorAndroidEntry`, on by default): the Application runs `Main`, then starts the
-app. They also compile the app with an entry point, which the Android SDK otherwise
-leaves out, and take the launcher icon and splash screen from the app's `UnoIcon` and
-`UnoSplashScreen`, so `Platforms/Android` needs no C# and no `Styles.xml`. An app that
-keeps its own `NativeApplication` sets `<ReactorAndroidEntry>false</ReactorAndroidEntry>`
-and returns `ReactorApp.CreateHost<TRoot>()` from its `CreateHost`; with the entry
-left on, such an app fails the build with `REACTORUNO0001`, which names the file.
-
-On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
-block, so on wasm `Run` starts the app and returns, and any code after it runs
-right away. On Android it only records the root and returns. `RunAsync` is there
-for callers that want the host's `Task`; on wasm it never completes.
+Every target starts from one `Program.cs` that calls `ReactorApp.Run<T>()`;
+[The entry point](#the-entry-point) explains how, Android included.
 
 Verified end-to-end: `UseState` → `Button` click → reconciler diff → patched
 `TextBlock` on Skia desktop, and the same app rendering **and responding to
@@ -52,7 +37,9 @@ first page, and the counter responds to taps.
 ## Quick start — a new app from the template
 
 Uno's `unoapp-reactor` template creates a single Uno project for desktop,
-WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature:
+WebAssembly, Android and iOS that takes Reactor from the `Reactor` UnoFeature.
+Create it from the command line: Visual Studio's New Project dialog doesn't list
+this template.
 
 ```bash
 dotnet new install Uno.Templates@7.0.0-dev.119
@@ -63,26 +50,18 @@ dotnet run -f net10.0-desktop
 
 `7.0.0-dev.119` is the first `Uno.Templates` whose app starts on Android from
 `Program.cs`, like every other target; later ones work too. The generated
-`.csproj` has `<UnoFeatures>SkiaRenderer;Reactor;</UnoFeatures>`
-and no `PackageReference`: the Uno.Sdk pinned in its `global.json` picks the
+`.csproj` lists `Reactor` in `UnoFeatures` and has no `PackageReference`: the
+Uno.Sdk pinned in its `global.json` picks the
 [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor)
 version. `-platforms desktop wasm` (any of `android`, `ios`, `wasm`, `desktop`)
 cuts the target list.
-
-The template first shipped in `7.0.0-dev.104`. Up to `7.0.0-dev.115` it gives the
-app its own Android `Application` in `Platforms/Android`, because the package
-those Uno.Sdks bring has no Android entry. Moving such an app to Uno.Sdk
-`7.0.0-dev.119` or later stops the build with `REACTORUNO0001`, whose message
-says what to delete or which property to set.
 
 To add Reactor to an existing Uno app instead, put `Reactor` in its `UnoFeatures`
 and pin Uno.Sdk `7.0.0-dev.119` or later in its `global.json` (or in the project:
 `<Project Sdk="Uno.Sdk/x.y.z">`). The feature first shipped in Uno.Sdk
 `7.0.0-dev.97`; an older Uno.Sdk ignores it silently, and the build fails with
-`CS0234` on `Microsoft.UI.Reactor`. From `7.0.0-dev.97` to `7.0.0-dev.115` the
-package comes without the Android entry, so `ReactorApp.Run` in `Program.cs`
-never runs on Android: the app needs its own `NativeApplication` that returns
-`ReactorApp.CreateHost<TRoot>(...)` from `CreateHost`.
+`CS0234` on `Microsoft.UI.Reactor`. An app started on an earlier preview is
+covered under [Known limitations](#known-limitations--notes).
 
 ## Quick start — a file-based, single-file Reactor app
 
@@ -96,7 +75,6 @@ post, but cross-platform. The whole app is one `.cs` file
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
-#:property UnoFeatures=SkiaRenderer
 #:property PublishAot=false
 #:property PackAsTool=false
 
@@ -137,9 +115,8 @@ The `#:project` line builds the port from this repo, and the bare `#:sdk Uno.Sdk
 takes its version from the repo-root [`global.json`](../../global.json),
 the one nearest the file. Outside the repo, delete the `#:project` line,
 put the file next to a `global.json` that pins Uno.Sdk `7.0.0-dev.119` or later
-(or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add `Reactor` to
-the `UnoFeatures` line (`#:property UnoFeatures=SkiaRenderer;Reactor`), as the
-[package readme](PackageReadme.md#a-single-file-app) shows.
+(or name the version on the line: `#:sdk Uno.Sdk@x.y.z`), and add a
+`#:property UnoFeatures=Reactor` line, as the [package readme](PackageReadme.md#a-single-file-app) shows.
 
 > **Versus the WinUI version.** The WinUI file-based app uses
 > `#:property TargetFramework=net10.0-windows10.0.22621.0` +
@@ -182,7 +159,8 @@ Uno.Sdk brings a version of the package without them, so the app is never instal
 
 ### Every target from one project
 
-A single file targets one TFM at a time; a project can target them all.
+A single file targets one TFM at a time; a project can target them all. A single
+file can't run on iOS yet, so for iOS use a project.
 [`samples/Uno/ReactorUnoCounter`](../../samples/Uno/ReactorUnoCounter) is a normal
 multi-targeted project that runs on each from one source, with the same
 `ReactorApp.Run` call on each (iOS, which needs a Mac to run, is in
@@ -194,6 +172,26 @@ dotnet run -f net10.0-desktop          # desktop window
 dotnet run -f net10.0-browserwasm      # prints a localhost URL — open it
 dotnet run -f net10.0-android          # installs on the connected device, streams logcat
 ```
+
+## The entry point
+
+The samples are **single Uno projects targeting all four heads** — the component
+source is identical everywhere, and so is the entry point: every target calls
+`ReactorApp.Run<T>()` from one `Program.cs` (Uno gives the Apple heads the same
+host-builder shape as desktop). Android never calls `Main` on its own, so the
+package's build targets add the Android Application and launcher Activity
+(`ReactorAndroidEntry`, on by default): the Application runs `Main`, then starts the
+app. They also compile the app with an entry point, which the Android SDK otherwise
+leaves out, and take the launcher icon and splash screen from the app's `UnoIcon` and
+`UnoSplashScreen`, so `Platforms/Android` needs no C# and no `Styles.xml`. An app that
+keeps its own `NativeApplication` sets `<ReactorAndroidEntry>false</ReactorAndroidEntry>`
+and returns `ReactorApp.CreateHost<TRoot>()` from its `CreateHost`; with the entry
+left on, such an app fails the build with `REACTORUNO0001`, which names the file.
+
+On desktop and iOS, `Run` blocks until the window closes. The browser thread can't
+block, so on wasm `Run` starts the app and returns, and any code after it runs
+right away. On Android it only records the root and returns. `RunAsync` is there
+for callers that want the host's `Task`; on wasm it never completes.
 
 ## Architecture
 
@@ -443,6 +441,18 @@ to run (`--non-interactive` stops instead).
   They are `PrivateAssets="all"`: Reactor.Uno needs them only to compile its host
   bootstrap, and every Uno.Sdk app head references them itself, so the package
   doesn't list them as dependencies.
+- **Apps made on an earlier preview.** Before `7.0.0-dev.119` the package had no
+  Android entry, so `ReactorApp.Run` in `Program.cs` never ran on Android:
+  - The `unoapp-reactor` template first shipped in `Uno.Templates`
+    `7.0.0-dev.104`. Up to `7.0.0-dev.115` it gives the app its own Android
+    `Application` in `Platforms/Android`.
+  - An app that took the `Reactor` UnoFeature on Uno.Sdk `7.0.0-dev.97` to
+    `7.0.0-dev.115` needs its own `NativeApplication` that returns
+    `ReactorApp.CreateHost<TRoot>(...)` from `CreateHost`.
+
+  Moving such an app to Uno.Sdk `7.0.0-dev.119` or later stops the build with
+  `REACTORUNO0001`, whose message says what to delete or which property to set
+  (see [The entry point](#the-entry-point)).
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
@@ -455,7 +465,7 @@ to run (`--non-interactive` stops instead).
 
 The samples are single Uno projects whose `net10.0-android` and `net10.0-ios`
 heads run as-is; no separate mobile head project is needed. Only the entry point
-is platform-specific (see [Status](#status)), and the framework code itself is
+is platform-specific (see [The entry point](#the-entry-point)), and the framework code itself is
 platform-agnostic `Microsoft.UI.Xaml`. Deploy commands are in
 [samples/Uno](../../samples/Uno/README.md#android--ios).
 

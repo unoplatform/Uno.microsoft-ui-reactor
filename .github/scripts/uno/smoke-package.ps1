@@ -46,11 +46,20 @@ $null = Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Un
 $source = Get-Content (Join-Path $PSScriptRoot '../../../samples/Uno/file-based/Counter.cs') -Raw
 $null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
 $null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Uno.Sdk line in Counter.cs'
-$features = Get-OneMatch $source '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)' 'UnoFeatures line in Counter.cs'
-if ($features.Groups[1].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'Counter.cs already has the Reactor feature' }
+$featuresPattern = '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)'
+$features = [regex]::Matches($source, $featuresPattern)
+if ($features.Count -gt 1) { throw "Expected at most one UnoFeatures line in Counter.cs, found $($features.Count)" }
+if ($features.Count -eq 1 -and $features[0].Groups[1].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'Counter.cs already has the Reactor feature' }
 $source = [regex]::Replace($source, '(?m)^#:project .*\r?\n', '')
 $source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk(?=\r?$)', "`$0`n#:property UnoReactorVersion=$Version")
-$source = [regex]::Replace($source, '(?m)^(#:property UnoFeatures=[^\r\n]*)(?=\r?$)', '$1;Reactor')
+if ($features.Count -eq 1) {
+    $source = [regex]::Replace($source, '(?m)^(#:property UnoFeatures=[^\r\n]*)(?=\r?$)', '$1;Reactor')
+}
+else {
+    # The sample lists no UnoFeatures; the readme's form adds the line after UnoSingleProject.
+    $null = Get-OneMatch $source '(?m)^#:property UnoSingleProject=true(?=\r?$)' 'UnoSingleProject line in Counter.cs'
+    $source = [regex]::Replace($source, '(?m)^#:property UnoSingleProject=true(?=\r?$)', "`$0`n#:property UnoFeatures=Reactor")
+}
 $app = Join-Path $WorkDir 'Counter.cs'
 Set-Content $app $source -NoNewline
 Write-Host "Counter.cs header:"

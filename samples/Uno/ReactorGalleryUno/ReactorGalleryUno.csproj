@@ -15,10 +15,6 @@
     <RootNamespace>WinUIGalleryReactor</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-
-    <UnoFeatures>
-      SkiaRenderer;
-    </UnoFeatures>
   </PropertyGroup>
 
   <!-- ── Shared gallery source ──────────────────────────────────────────────

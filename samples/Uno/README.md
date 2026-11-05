@@ -13,7 +13,7 @@ Samples that run **Microsoft.UI.Reactor** on Uno Platform Skia targets
 
 All three app samples are **single Uno projects targeting all four heads** — the
 `Component` source and the `Program.cs` entry point are identical everywhere (see
-[Status](../../src/Reactor.Uno/README.md#status) in the port README).
+[The entry point](../../src/Reactor.Uno/README.md#the-entry-point) in the port README).
 
 The samples reference the port as a project (`src/Reactor.Uno`). To use one
 outside this repo, drop that `ProjectReference`, add `Reactor` to `UnoFeatures`,
@@ -64,7 +64,7 @@ for `ReactorGalleryUno` to run the gallery.
 
 The same projects, different heads, and the same `Program.cs`: Android never calls
 `Main` on its own, so Reactor adds the Android Application and Activity that run it
-(the port README's [Status](../../src/Reactor.Uno/README.md#status) explains how).
+(the port README's [entry point](../../src/Reactor.Uno/README.md#the-entry-point) section explains how).
 `Platforms/Android` keeps only the manifest and `environment.conf`.
 
 ```bash

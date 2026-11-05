@@ -3,7 +3,6 @@
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
 #:property UnoSingleProject=true
-#:property UnoFeatures=SkiaRenderer
 #:property PublishAot=false
 #:property PackAsTool=false
 
