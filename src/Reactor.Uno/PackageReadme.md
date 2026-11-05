@@ -6,7 +6,7 @@ For a Windows App SDK app, use Microsoft's `Microsoft.UI.Reactor` package instea
 
 ## Requirements
 
-- The .NET SDK 10.0.400 or later.
+- A .NET 10 SDK.
 - Uno.Sdk `7.0.0-dev.119` or later, with the Skia renderer. You don't reference this package yourself: add `Reactor` to `UnoFeatures` and the Uno.Sdk brings in the version it was released with.
 
 ## A new app
