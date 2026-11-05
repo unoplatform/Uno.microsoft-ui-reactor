@@ -394,9 +394,15 @@ Nothing has to be opted into for this. There is **no `HotReload` UnoFeature**
 (passing one just warns `Unable to parse 'hotreload' to a known Uno Feature` and
 is ignored); the dev-server client `Uno.WinUI.DevServer` / `Uno.UI.RemoteControl`
 is referenced automatically for Debug builds, and the Dev Server process itself is
-started by the IDE. `.UseStudio()` is likewise not needed — it lives in
-`Uno.UI.HotDesign` and turns on **Hot Design**, Uno's runtime *XAML* visual
-designer, which does not apply to a XAML-free framework like Reactor.
+started by the IDE. `.UseStudio()` is not needed for Reactor's re-render. It turns
+on **Hot Design**, Uno's runtime *XAML* visual designer, which does not apply to a
+XAML-free framework like Reactor. It also registers the window for Uno's own Hot
+Reload client, and without that Uno reports each edit as failed, even though Reactor
+has re-rendered. See [Known issues](HOT-RELOAD.md#uno-reports-every-reactor-edit-as-failed).
+
+[HOT-RELOAD.md](HOT-RELOAD.md) has the full picture: what Reactor's Hot Reload does
+on its own, what the Uno Dev Server adds, support by launch method, and the
+[known issues](HOT-RELOAD.md#known-issues) with their workarounds.
 
 On an update Reactor re-renders the whole tree with `force: true` (bypassing memo),
 migrates hook cells whose types were edited, and treats a `HookOrderException` as
@@ -456,6 +462,10 @@ to run (`--non-interactive` stops instead).
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
+- **Hot Reload.** Edits apply, but some of Uno's tooling doesn't understand a
+  Reactor app yet: Uno reports each edit as failed, and the Uno App MCP doesn't see
+  the app. [HOT-RELOAD.md](HOT-RELOAD.md#known-issues) lists the known issues and
+  their workarounds.
 - See the **Feature support on Uno Skia** matrix above for what works, what's
   partial, and what's unsupported. The unsupported/partial rows surface as
   `Uno0001` *not-implemented* build warnings — runtime no-ops in Uno, not build
