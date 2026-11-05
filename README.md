@@ -1,6 +1,6 @@
 # Uno Platform port of Microsoft.UI.Reactor
 
-This port lets [Uno Platform](https://platform.uno/) apps use [Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) with the Skia renderer. It runs on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS. It is experimental, like Reactor itself, and a work in progress.
+[Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) is Microsoft's framework for writing WinUI 3 apps the way React works: you build the UI from components and hooks in C#, with no XAML. Microsoft's version runs only on Windows. [Uno Platform](https://platform.uno/) implements the WinUI API on desktop (Windows, macOS, Linux), WebAssembly, Android and iOS, and its Skia renderer draws every control itself, so it looks the same everywhere. This port runs the same Reactor code on all of those targets. It is experimental, like Reactor itself, and a work in progress.
 
 - **Package:** [`Uno.Microsoft.UI.Reactor`](https://www.nuget.org/packages/Uno.Microsoft.UI.Reactor) on nuget.org. Prerelease `-dev.N` builds are published from the `uno` branch, and stable releases from `release/stable/*` branches.
 - **Start an app:** `dotnet new install Uno.Templates@7.0.0-dev.119`, then `dotnet new unoapp-reactor -n MyApp`; or add `Reactor` to an existing Uno app's `UnoFeatures`. See the port README's [quick start](src/Reactor.Uno/README.md#quick-start--a-new-app-from-the-template), which also covers a single-file app.
