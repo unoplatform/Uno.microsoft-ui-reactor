@@ -333,7 +333,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | System backdrop / Mica / DWM effects | ❌ | Not shared. |
 | Multi-monitor / display enumeration | ❌ | `ReactorDisplay.Displays` returns empty. |
 | Window closing guards (`UseClosingGuard`) | ✅ desktop | Backed by Uno's `AppWindow.Closing`. Guards stack; any returning `false` cancels the close, and a throwing guard fail-safes to "cancel" (same as the Windows framework). Honoured on desktop Windows / macOS / Linux. On Android, iOS and wasm the event still fires but cancellation has no effect (per Uno), so the close proceeds. Demoed on the Showcase's second window. |
-| Hot Reload (edit `Render()` while running) | ✅ desktop · wasm · Android · iOS | Reactor registers `[assembly: MetadataUpdateHandler]`, and Uno's own `HotReloadAgent` discovers and invokes **every** registered handler — so Reactor's re-render is driven by Uno's hot-reload pipeline on the targets `dotnet watch` alone can't reach. Needs no opt-in: Reactor's host connects the app to the Uno Dev Server itself. `UseState` survives; hook add/remove/reorder recovers by remounting. iOS verified on the Simulator only. See [Hot Reload](#hot-reload) below. |
+| Hot Reload (edit `Render()` while running) | ✅ desktop · wasm · Android · iOS | Debug builds, with no opt-in. `UseState` survives; hook add/remove/reorder recovers by remounting. iOS verified on the Simulator only. Some of Uno's tooling has known issues with Reactor apps: see [Hot Reload](#hot-reload) below. |
 | Declarative caption height (`TitleBar(...).Tall()`, `WindowSpec.TitleBarHeight`) | ✅ desktop | Backed by Uno's `AppWindowTitleBar.PreferredHeightOption` (Standard 32 / Tall 48 / Collapsed 0), which Uno implements for real. The WinUI `TitleBar` *control* is still an Uno stub, so only the caption half is visible today. |
 | Window drag-move, aspect-ratio lock | ❌ | Still no-op stubs — **not yet audited** against Uno's API surface (multi-window, DPI, pickers and closing guards all turned out to be implementable, so these may be too). |
 | Docking (dock manager, tab tear-off, floating windows, splitters) | ❌ | Excluded from the port entirely. |
@@ -344,47 +344,28 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 
 ## Hot Reload
 
-**Editing a component updates the running app, and its state survives.**
-Reactor's [`HotReloadService`](../Reactor/Hosting/HotReloadService.cs), source-shared
-from the Windows framework, is a standard `[assembly: MetadataUpdateHandler]`. On
-each update it re-renders the whole tree with `force: true` (bypassing memo),
-migrates hook cells whose types were edited, and treats a `HookOrderException` as
-"the edit changed the hook shape": it drops that component's hook state and
-remounts instead of showing the error overlay.
+**Editing a component updates the running app, and its state survives.** It works
+in Debug builds:
 
-It works with whatever delivers the change to the running app:
+- **with `dotnet watch`**, on desktop (see [below](#from-the-command-line));
+- **with the Uno Dev Server**, started by an IDE or with `uno-devserver start`, on
+  every target.
 
-- **`dotnet watch`**, on desktop. Verified; see [below](#from-the-command-line).
-- **The Uno Dev Server**, started by the IDE or with `uno-devserver start`, on every
-  target. Uno's `HotReloadAgent` calls every `MetadataUpdateHandler` in the app, so
-  Reactor's re-render needs no Uno-specific handler. Verified on WebAssembly, an
-  Android phone, the iOS Simulator and desktop.
-- **Visual Studio**: expected, not tried.
+Nothing has to be opted into. There is no `HotReload` UnoFeature, and `.UseStudio()`
+isn't needed: it turns on Hot Design, which doesn't support Reactor apps.
 
-Nothing has to be opted into. There is **no `HotReload` UnoFeature** (passing one
-just warns `Unable to parse 'hotreload' to a known Uno Feature` and is ignored), and
-Uno.Sdk references the Dev Server client in Debug builds only. A XAML app connects
-to the Dev Server from its `App.xaml`'s generated code; a Reactor app has no
-`App.xaml`, so Reactor's host makes the same `RemoteControlClient.Initialize` call
-when it creates its `Application`, passing the root component type, whose assembly
-carries the Dev Server's address. In Release there is nothing to call and nothing
-happens.
+The known issues you're most likely to hit:
 
-Some of Uno's tooling doesn't understand a Reactor app yet. The ones you're most
-likely to hit:
-
-- **Uno reports each edit as failed**, although Reactor has re-rendered, because no
-  window is registered with Uno's Hot Reload client. Register it in Debug builds.
+- **Uno reports each edit as failed**, although the app has updated.
 - **The Uno App MCP doesn't see the app**, so an AI agent can edit the code but not
   drive the app or check an edit.
 - **A desktop app started with `dotnet run` refuses every edit** without
   `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment. IDEs and `dotnet watch`
   set it.
 
-[HOT-RELOAD.md](HOT-RELOAD.md) has the full picture: support by launch method, how
-Reactor and Uno split the work, and every [known issue](HOT-RELOAD.md#known-issues)
-with its workaround. `.UseStudio()` isn't needed: it turns on Hot Design, Uno's
-runtime *XAML* designer, which doesn't support Reactor apps yet.
+[#35](https://github.com/unoplatform/Uno.microsoft-ui-reactor/pull/35) fixes the first
+two. [HOT-RELOAD.md](HOT-RELOAD.md) has support by launch method and IDE, what doesn't
+work, and every [known issue](HOT-RELOAD.md#known-issues) with its workaround.
 
 ### From the command line
 
@@ -448,10 +429,11 @@ apps made from the template, which come without a solution.
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
-- **Hot Reload.** Edits apply, but some of Uno's tooling doesn't understand a
-  Reactor app yet: Uno reports each edit as failed, and the Uno App MCP doesn't see
-  the app. [HOT-RELOAD.md](HOT-RELOAD.md#known-issues) lists the known issues and
-  their workarounds.
+- **Hot Reload.** Edits apply, but Uno reports each edit as failed, and the Uno App
+  MCP doesn't see the app, until
+  [#35](https://github.com/unoplatform/Uno.microsoft-ui-reactor/pull/35) ships.
+  [HOT-RELOAD.md](HOT-RELOAD.md#known-issues) lists the known issues and their
+  workarounds.
 - See the **Feature support on Uno Skia** matrix above for what works, what's
   partial, and what's unsupported. The unsupported/partial rows surface as
   `Uno0001` *not-implemented* build warnings — runtime no-ops in Uno, not build
