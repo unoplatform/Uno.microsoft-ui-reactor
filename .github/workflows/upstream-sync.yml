@@ -24,8 +24,9 @@ name: Sync upstream into uno
 # needs a merge-commit or squash merged PR; for a rebase-merged one only its last
 # commit would be skipped.
 #
-# Token: provide a `SYNC_BOT_TOKEN` secret, a PAT with `workflow` scope (fine-grained:
-# Contents + Pull requests + Workflows, all read/write) or an equivalent App token.
+# Token: provide a `SYNC_BOT_TOKEN` secret, a PAT (classic: `repo` + `workflow`;
+# fine-grained: Contents, Issues, Pull requests and Workflows, all read/write). An App
+# token expires within the hour, so it would need a step generating it first.
 # The default GITHUB_TOKEN is the fallback but is NOT sufficient:
 #   - GitHub rejects its push whenever the sync brings a change to .github/workflows/**
 #     ("refusing to allow a GitHub App to create or update workflow"), and `workflows`
@@ -140,6 +141,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ env.SYNC_TOKEN }}
+          # Reads Microsoft's public PRs: a fine-grained PAT may be refused across orgs.
+          UPSTREAM_READ_TOKEN: ${{ github.token }}
           TARGET: uno
           UPSTREAM_REPO: microsoft/microsoft-ui-reactor
           UPSTREAM_BRANCH: main
@@ -215,7 +218,7 @@ jobs:
           excluded_list=""
           excluded_prs="$EXCLUDED_UPSTREAM_PRS"
           for n in ${excluded_prs//,/ }; do
-            sha="$(gh pr view "$n" --repo "$UPSTREAM_REPO" --json mergeCommit --jq '.mergeCommit.oid // empty' 2>/dev/null || true)"
+            sha="$(GH_TOKEN="$UPSTREAM_READ_TOKEN" gh pr view "$n" --repo "$UPSTREAM_REPO" --json mergeCommit --jq '.mergeCommit.oid // empty' 2>/dev/null || true)"
             if [ -z "$sha" ] || ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
               note "❌ excluded PR ${UPSTREAM_REPO}#$n has no reachable merge commit"
               exit 1
