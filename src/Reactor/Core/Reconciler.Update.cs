@@ -115,7 +115,10 @@ public sealed partial class Reconciler
             if (newEl.HasCallbacks && control is FrameworkElement tagFeSE)
                 SetElementTag(tagFeSE, newEl);
             else if (CallSiteChangedOnSkip(oldEl, newEl) && control is FrameworkElement srcFeSE)
-                SetElementTag(srcFeSE, newEl);   // spec 010 — keep the reported line live
+                RefreshCallSiteTagOnSkip(srcFeSE, newEl);   // spec 010 — keep the reported line live
+            if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
+                && CallSiteChangedOnSkip(oldEl, newEl))
+                PublishSourceOnSkip(control, newEl);
             if (newEl.ThemeBindings is not null && control is FrameworkElement thFeSE)
                 ApplyThemeBindings(thFeSE, newEl.ThemeBindings);
             // Re-resolve ThemeRef-based resource overrides on theme change, against the
@@ -128,6 +131,10 @@ public sealed partial class Reconciler
             if ((HasGestureOrDragSlots(modifiers) || HasGestureOrDragSlots(oldModifiers))
                 && control is FrameworkElement gestFeSE)
                 RefreshGestureDragStateOnSkip(gestFeSE, oldModifiers, modifiers);
+            // A virtualized host's own skipped element re-snapshots here at its own depth
+            // (no-op for every other control or a decorator sharing it, and
+            // allocation-free when nothing changed).
+            RefreshContextCaptureOnSkip(control, newEl, effectiveTheme);
             // No validation refresh here, deliberately (issue #1262). A `.Validate()`
             // verdict is republished only by a component that re-rendered, and that
             // component's output is on the dirty ancestor path, which this arm declines
@@ -175,8 +182,24 @@ public sealed partial class Reconciler
             _contextScope.Push(ctxValues);
             ctxCount = ctxValues.Count;
         }
+        bool providerChanged = !Element.ContextValuesEqual(oldEl.ContextValues, ctxValues);
+        if (providerChanged)
+            EnterProviderChange();
+        bool themeChanged = (oldModifiers?.RequestedTheme ?? ElementTheme.Default)
+            != (modifiers?.RequestedTheme ?? ElementTheme.Default);
+        if (themeChanged)
+            EnterThemeChange();
+
+        // Virtualized hosts realize rows outside this traversal; keep their provider
+        // snapshot current (no-op for every other control, and for a decorator that
+        // shares the host's control — the host element's own Update refreshes it).
+        RefreshContextCapture(control, newEl, effectiveTheme);
+
+        var prevReconcilingElement = _reconcilingElement;
+        _reconcilingElement = newEl;
 
         UIElement? result;
+        bool registeredType = false;
         try
         {
         // Publish the effective theme for the subtree now that we're committed to the
@@ -205,6 +228,7 @@ public sealed partial class Reconciler
         else if (_typeRegistry.TryGetValue(newEl.GetType(), out var reg))
         {
             result = reg.Update(oldEl, newEl, control, requestRerender, this);
+            registeredType = true;
         }
         else if (TryResolveFromControlRegistry(newEl.GetType(), out v1Entry))
         {
@@ -233,19 +257,40 @@ public sealed partial class Reconciler
             // time to reconstruct the old tree (which would diff against the wrong "old" if the
             // factory reads mutable state by reference). Wrapper modifiers are still applied by
             // the post-dispatch ApplyModifiers below.
-            // The one exception is a component inside the subtree that updated its own state:
-            // returning null would leave it un-rendered, so the pass walks down to it instead.
-            (KeyedMemoElement, KeyedMemoElement memo, _) when IsOnDirtyAncestorPath(control)
+            // The exceptions are a component inside the subtree that updated its own state, and
+            // a resource-refresh pass (Theme.NotifyResourcesChanged), which must reach every
+            // Theme.Ref value inside: returning null would leave them stale, so the pass walks the
+            // subtree instead.
+            (KeyedMemoElement, KeyedMemoElement memo, _) when _resourceRefreshActive || IsOnDirtyAncestorPath(control)
                 => UpdateKeyedMemoTowardDirtyDescendant(memo, control, requestRerender),
             (KeyedMemoElement, KeyedMemoElement, _) => null,
             _ => Mount(newEl, requestRerender),
         };
         }
 
+        // A transparent layer (a keyed Memo, a flyout wrapping its target) shares its inner
+        // element's control. When the inner update hands back a different control (a target whose
+        // type changed, a handler that always remounts), that control is new to this layer too, so
+        // its own modifiers apply with mount semantics (all written, OnMount runs) rather than as an
+        // old->new diff. Nested layers each see the same different control and do the same.
+        if (result is not null && !ReferenceEquals(result, control)
+            && newEl is KeyedMemoElement or FlyoutElement or MenuFlyoutElement or CommandBarFlyoutElement)
+            oldModifiers = null;
+
         // Apply inline modifiers after update. When old modifiers existed but new
         // modifiers are null, pass an empty instance so ApplyModifiers can clear
         // stale values (same principle as the flex attached-property fix).
         var target = result ?? control;
+        // Re-publish only when the value can change: a replaced control (its mount already
+        // published, but a handler may have swapped it without Mount) or a new call site /
+        // key / kind. An in-place update of an unchanged element keeps its published value.
+        if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
+            && (result is not null || Diagnostics.ReactorSourcePublisher.IdentityChanged(oldEl, newEl))
+            // A RegisterType callback that forwards to a child: the control describes the child
+            // (compared with the element whose value it would carry: the new one for a
+            // replacement, the old one for an in-place update).
+            && !(registeredType && ForwardsAnotherElement(target, result is not null ? newEl : oldEl)))
+            PublishSource(target, newEl);
 
         // Record the control for highlight overlay only when the element's own
         // WinUI properties were actually updated (not just children recursed).
@@ -263,8 +308,12 @@ public sealed partial class Reconciler
                 .ObserveAfterSetters(preModCtl);
         }
 
+        // Set by BorderElement's built-in descriptor when it already released or replaced a removed
+        // Background modifier before native setters ran; clearing here would discard both.
+        var keepRemovedBackground = _backgroundRemovalHandled.Count > 0
+            && _backgroundRemovalHandled.Remove(control) && ReferenceEquals(target, control);
         if ((modifiers is not null || oldModifiers is not null) && target is FrameworkElement fe)
-            ApplyModifiers(fe, oldModifiers, modifiers ?? new ElementModifiers(), requestRerender);
+            ApplyModifiers(fe, oldModifiers, modifiers ?? new ElementModifiers(), requestRerender, keepRemovedBackground);
         if (target is FrameworkElement dragFe)
             ApplyDragAttached(dragFe, newEl.GetAttached<DragAttached>());
         // Issue #1262 — re-bind (or withdraw) the attached verdict. The old element is
@@ -286,7 +335,7 @@ public sealed partial class Reconciler
         if (target is WinUI.TitleBar tbCtl)
         {
             if (newEl is TitleBarElement tbEl)
-                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl, TitleBarElement.WindowFor(this, tbCtl));
 
             // Anything that changed since the pre-modifier observation came from a
             // modifier; whether it recurs depends on the phase.
@@ -352,9 +401,18 @@ public sealed partial class Reconciler
         }
         finally
         {
+            _reconcilingElement = prevReconcilingElement;
+            if (themeChanged)
+                ExitThemeChange();
+            if (providerChanged)
+                ExitProviderChange();
             if (ctxCount > 0)
                 _contextScope.Pop(ctxCount);
             _ambientRequestedTheme = prevAmbientTheme;
+            // A throw between the descriptor's mark and its consumption above must not leave
+            // the set holding this control.
+            if (_backgroundRemovalHandled.Count > 0)
+                _backgroundRemovalHandled.Remove(control);
         }
 
         return result;
@@ -463,6 +521,34 @@ public sealed partial class Reconciler
         {
             if (block is Microsoft.UI.Xaml.Documents.Paragraph para)
                 UnmountInlineUIChildrenInInlines(para.Inlines);
+        }
+    }
+
+    /// <summary>
+    /// Visits the Reactor-managed (Route A) inline UI children of a
+    /// <see cref="WinUI.RichTextBlock"/>: the same set <see cref="UnmountInlineUIChildren"/>
+    /// tears down, which a logical walk must reach before the document is realized.
+    /// </summary>
+    internal static void VisitInlineUIChildren(WinUI.RichTextBlock rtb, Action<UIElement> visit)
+    {
+        foreach (var para in global::System.Linq.Enumerable.OfType<Microsoft.UI.Xaml.Documents.Paragraph>(rtb.Blocks))
+            VisitInlineUIChildrenInInlines(para.Inlines, visit);
+    }
+
+    private static void VisitInlineUIChildrenInInlines(
+        Microsoft.UI.Xaml.Documents.InlineCollection inlines, Action<UIElement> visit)
+    {
+        foreach (var inline in inlines)
+        {
+            switch (inline)
+            {
+                case WinDocs.InlineUIContainer { Child: FrameworkElement childFe } when (bool)childFe.GetValue(s_inlineUIRouteAProperty):
+                    visit(childFe);
+                    break;
+                case WinDocs.Span span:
+                    VisitInlineUIChildrenInInlines(span.Inlines, visit);
+                    break;
+            }
         }
     }
 
@@ -1175,7 +1261,7 @@ public sealed partial class Reconciler
         if (newChild is not null && oldChild is not null
             && getControl() is UIElement existing && CanUpdate(oldChild, newChild))
         {
-            var replacement = Update(oldChild, newChild, existing, requestRerender);
+            var replacement = UpdateHostedChild(oldChild, newChild, existing, requestRerender);
             if (replacement is not null) setControl(replacement);
         }
         else if (newChild is not null)
@@ -1225,23 +1311,27 @@ public sealed partial class Reconciler
             if (container.ContentTemplateRoot is not ContentControl cc) continue;
 
             var index = listViewBase.IndexFromContainer(container);
-            if (index < 0 || index >= viewSource.ItemCount) continue;
+            if (index < 0)
+            {
+                UnmountOrphanedContainer(listViewBase, container, cc);
+                continue;
+            }
+            if (index >= viewSource.ItemCount) continue;
 
             var oldItemElement = GetElementTag(cc);
-            var newItemElement = viewSource.BuildItemView(index);
+            var newItemElement = BuildKeyedItemView(viewSource, index);
 
-            if (oldItemElement is not null && cc.Content is UIElement existingCtrl && CanUpdate(oldItemElement, newItemElement))
-            {
-                var replacement = Update(oldItemElement, newItemElement, existingCtrl, requestRerender);
-                if (replacement is not null && !ReferenceEquals(cc.Content, replacement))
-                    cc.Content = replacement;
-            }
-            else
-            {
-                if (cc.Content is UIElement oldCtrl)
-                    Unmount(oldCtrl);
-                cc.Content = Mount(newItemElement, requestRerender);
-            }
+            // ReconcileV1Child updates in place when it can and remounts otherwise, and either way
+            // unmounts a control it replaced (e.g. a same-key Memo whose output changed shape
+            // during a resource refresh), so the old item's effects and refs are cleaned up.
+            // Untagged content was already unmounted by an orphan or parked-container sweep: replace it,
+            // never unmount it again.
+            var priorKey = cc.Content is FrameworkElement priorFe ? GetElementTag(priorFe)?.Key : null;
+            var next = ReconcileV1Child(oldItemElement, newItemElement,
+                oldItemElement is null ? null : cc.Content as UIElement, requestRerender);
+            EnsureItemIdentity(next, newItemElement, priorKey, updated: true);
+            if (!ReferenceEquals(cc.Content, next))
+                cc.Content = next;
             SetElementTag(cc, newItemElement);
 
             // Issue #951 — the container survives re-renders, so its automation
@@ -1249,6 +1339,166 @@ public sealed partial class Reconciler
             // a renamed item would keep announcing the previous row's name.
             PropagateItemAutomationName(container, cc.Content as UIElement);
         }
+
+        // The layout pass a structural change triggers can park a container offscreen without
+        // raising its recycle ContainerContentChanging, so check the containers once it completes.
+        if (GetListState(listViewBase) is { StructureChanged: true } list)
+        {
+            list.StructureChanged = false;
+            SchedulePostLayoutSweep(listViewBase, list);
+        }
+    }
+
+    /// <summary>
+    /// Runs <see cref="SweepParkedContainers"/> once, after the next layout pass that lays the
+    /// list out.
+    /// </summary>
+    private void SchedulePostLayoutSweep(WinUI.ListViewBase listViewBase, Internal.ReactorListState list)
+    {
+        if (list.PostLayoutSweep is not null || list.ShownWatch is not null || list.LoadedWatch is not null) return;
+        list.PostLayoutSweep = (_, _) => SweepParkedContainers(listViewBase, list);
+        listViewBase.LayoutUpdated += list.PostLayoutSweep;
+    }
+
+    /// <summary>
+    /// Unmounts the item view of every container a completed layout pass left unlinked from
+    /// any item (<c>IndexFromContainer</c> is -1). WinUI normally raises a recycle
+    /// <c>ContainerContentChanging</c> for such a container, but under insert / remove / move
+    /// churn it can park one offscreen in the items panel without ever doing so — a row moved
+    /// twice, a row realized into a second container, a row moved out of the realized range —
+    /// which left the row's components mounted: effects never cleaned up, and diagnostics
+    /// writes were accepted but never rendered, because no pass reaches a container the list
+    /// no longer shows. Only the components are torn down — the visuals stay, so a delete
+    /// transition still fades the row out. The check has to wait for the layout pass because
+    /// that is when WinUI parks the container: when the update that moved the row runs, the
+    /// container is still linked to it. No pass lays a list out while it is out of the tree (a
+    /// TabView tab not selected) or while it or an ancestor is collapsed, so a sweep that finds
+    /// it so waits, on the list's own <c>Loaded</c> or <c>EffectiveViewportChanged</c> rather than
+    /// on every layout pass in the window, and then sweeps after the next layout pass: a list
+    /// inserted into the tree is laid out, and its container parked, before <c>Loaded</c>.
+    /// </summary>
+    private void SweepParkedContainers(WinUI.ListViewBase listViewBase, Internal.ReactorListState list)
+    {
+        listViewBase.LayoutUpdated -= list.PostLayoutSweep;
+        list.PostLayoutSweep = null;
+        if (!ReferenceEquals(GetListState(listViewBase), list) || listViewBase.ItemsPanelRoot is not { } panel) return;
+        if (!listViewBase.IsLoaded)
+        {
+            RoutedEventHandler loadedWatch = null!;
+            loadedWatch = (_, _) =>
+            {
+                listViewBase.Loaded -= loadedWatch;
+                list.LoadedWatch = null;
+                SchedulePostLayoutSweep(listViewBase, list);
+            };
+            list.LoadedWatch = loadedWatch;
+            listViewBase.Loaded += loadedWatch;
+            return;
+        }
+        if (IsCollapsedInTree(listViewBase))
+        {
+            global::Windows.Foundation.TypedEventHandler<FrameworkElement, EffectiveViewportChangedEventArgs> shownWatch = null!;
+            shownWatch = (_, _) =>
+            {
+                listViewBase.EffectiveViewportChanged -= shownWatch;
+                list.ShownWatch = null;
+                SchedulePostLayoutSweep(listViewBase, list);
+            };
+            list.ShownWatch = shownWatch;
+            listViewBase.EffectiveViewportChanged += shownWatch;
+            return;
+        }
+        NoteParkedContainerSweep();
+        // Runs from a WinUI event after the sweep unsubscribed, so a throwing cleanup must not
+        // stop it: every parked view is unmounted, and failures go to the RenderErrorHandler as
+        // Cleanup (with none, the first is rethrown once the sweep is done), as on disposal. The
+        // propagation scope spans the unmounts too, so an exception a cleanup's nested Reactor
+        // work already declined (RenderError.Propagate) keeps going out instead of being
+        // reported to this list's handler again.
+        List<Exception>? failures = null;
+        using (RenderErrorDispatch.EnterPropagationScope())
+        {
+            using (IsolateUnmountCleanupFailures(ex => (failures ??= new()).Add(ex)))
+            {
+                var children = panel.Children;
+                for (int i = 0; i < children.Count; i++)
+                {
+                    if (children[i] is WinPrim.SelectorItem container
+                        && container.ContentTemplateRoot is ContentControl cc
+                        && GetElementTag(cc) is not null
+                        && listViewBase.IndexFromContainer(container) < 0)
+                        UnmountItemView(cc, clearContent: false);
+                }
+            }
+            if (failures is not null)
+                RenderErrorDispatch.ReportCleanupFailures(failures, ResolveRenderErrorHandler, isHostLevel: false, _logger)?.Throw();
+        }
+    }
+
+    // Test-only seam (InternalsVisibleTo Reactor.AppTests.Host): sweeps run.
+    internal static int ParkedContainerSweepCount;
+
+    private static void NoteParkedContainerSweep() => ParkedContainerSweepCount++;
+
+    /// <summary>
+    /// Drops an unmounted list's pending sweep, so no handler outlives the list.
+    /// </summary>
+    private static void CancelPostLayoutSweep(UIElement control)
+    {
+        if (control is not WinUI.ListViewBase listViewBase || GetListState(listViewBase) is not { } list) return;
+        if (list.PostLayoutSweep is { } sweep)
+        {
+            listViewBase.LayoutUpdated -= sweep;
+            list.PostLayoutSweep = null;
+        }
+        if (list.ShownWatch is { } watch)
+        {
+            listViewBase.EffectiveViewportChanged -= watch;
+            list.ShownWatch = null;
+        }
+        if (list.LoadedWatch is { } loaded)
+        {
+            listViewBase.Loaded -= loaded;
+            list.LoadedWatch = null;
+        }
+    }
+
+    private static bool IsCollapsedInTree(UIElement element)
+    {
+        for (DependencyObject? node = element; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+            if (node is UIElement { Visibility: Visibility.Collapsed })
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Unmounts the item view of a container WinUI has unlinked from its item
+    /// (<c>IndexFromContainer</c> is -1) once its item was cleared or that view's row is gone:
+    /// removed from the list, or shown by another container. WinUI normally raises a recycle
+    /// <c>ContainerContentChanging</c> for such a container, but under rapid insert / remove
+    /// churn it can park one offscreen in the items panel without ever doing so, which left the
+    /// row's components mounted: effects never cleaned up and diagnostics writes were accepted
+    /// but never rendered. Only the components are torn down — the visuals stay, so a delete
+    /// transition still fades the row out. A container unlinked for a row still in the list and
+    /// owned by no other container keeps its view: defensively, in case WinUI relinks it on a
+    /// later layout pass without realizing it again (it defers container realignment for a
+    /// move to the next layout pass; in practice it has re-realized moved rows).
+    /// </summary>
+    internal void UnmountOrphanedContainer(WinUI.ListViewBase listViewBase, WinPrim.SelectorItem container, ContentControl cc)
+    {
+        if (GetElementTag(cc) is null) return;
+        if (container.Content is ReactorRow row)
+        {
+            bool inList = GetListState(listViewBase) is { } state
+                && state.ByKey.TryGetValue(row.Key, out var current) && ReferenceEquals(current, row);
+            if (inList)
+            {
+                var owner = listViewBase.ContainerFromItem(row);
+                if (owner is null || ReferenceEquals(owner, container)) return;
+            }
+        }
+        else if (container.Content is not null) return;
+        UnmountItemView(cc, clearContent: false);
     }
 
     private readonly struct ItemsRepeaterKeyAdapter : IReadOnlyList<ItemsRepeaterKeyAdapter.KeyOnly>
@@ -1467,7 +1717,7 @@ public sealed partial class Reconciler
             && CanUpdate(oldContentEl, newContentEl))
         {
             // Reconcile in place
-            var replacement = Update(oldContentEl, newContentEl, existingCtrl, requestRerender);
+            var replacement = UpdateHostedChild(oldContentEl, newContentEl, existingCtrl, requestRerender);
             if (replacement is not null && !ReferenceEquals(liveNode.Content, replacement))
                 liveNode.Content = replacement;
         }
@@ -1565,7 +1815,10 @@ public sealed partial class Reconciler
 
     /// <summary>
     /// A same-key <c>Memo(key, …)</c> whose subtree holds a component that updated its own
-    /// state. The mounted inner element is not kept, so re-run the factory — pure by contract,
+    /// state, or any same-key memo during a resource-refresh pass (nothing skips there, so the
+    /// whole subtree is walked and its Theme.Ref values applied again; a brush the factory
+    /// resolved eagerly is equal on both sides and stays as it is, as the styling guide documents).
+    /// The mounted inner element is not kept, so re-run the factory — pure by contract,
     /// so its output describes what is mounted — and reconcile that output against itself.
     /// Old and new are the same instances all the way down, so every branch skips by reference
     /// except the dirty-ancestor path, which descends to the component. Nothing is compared

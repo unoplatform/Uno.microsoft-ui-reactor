@@ -19,7 +19,7 @@ the rest of the docset elaborates.
 <!-- /ai:lock -->
 
 > **Public preview package available.** Reactor ships `Microsoft.UI.Reactor`
-> `0.1.0-preview.16` on NuGet.org, and the project templates ship in the
+> `0.1.0-preview.17` on NuGet.org, and the project templates ship in the
 > official Windows App SDK `dotnet new` pack
 > (`Microsoft.WindowsAppSDK.WinUI.CSharp.Templates`) — so `dotnet new reactor`
 > works from a plain .NET SDK install, no source checkout required.
@@ -84,7 +84,7 @@ directly, and file-level `#:` directives supply the configuration a project file
 otherwise would:
 
 ```csharp
-#:package Microsoft.UI.Reactor@0.1.0-preview.16
+#:package Microsoft.UI.Reactor@0.1.0-preview.17
 #:package Microsoft.Windows.SDK.BuildTools.WinApp@0.7.0
 #:property OutputType=WinExe
 #:property TargetFramework=net10.0-windows10.0.22621.0
@@ -129,7 +129,7 @@ package identity, which needs **Developer Mode**. If you have the
 `winapp run counter.cs` does the same.
 
 `Microsoft.UI.Reactor` brings the Windows App SDK in transitively, exactly as in
-the [minimal `.csproj`](index.md#minimal-setup). The rest of the header:
+the [minimal `.csproj`](index.md#minimal-project-setup). The rest of the header:
 
 | Directive | Why it is required |
 |---|---|

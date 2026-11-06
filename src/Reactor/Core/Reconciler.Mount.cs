@@ -69,13 +69,20 @@ public sealed partial class Reconciler
             ? ownTheme : prevAmbientTheme;
 
         UIElement? control;
+        // A per-host RegisterType callback may return the control it mounted for a child
+        // element; that control already describes the child (see ForwardsAnotherElement).
+        bool registeredType = false;
         // Push stagger scope if this element has StaggerConfig — children mounted
         // inside MountXxx will consume stagger indices for their enter transitions.
         bool pushedStagger = element.StaggerConfig is not null;
         if (pushedStagger)
             PushStaggerScope(element.StaggerConfig!.Delay);
+        var prevReconcilingElement = _reconcilingElement;
         try
         {
+        // The innermost element being mounted owns any virtualized-host context capture
+        // its handler registers (see CaptureContextForHost).
+        _reconcilingElement = element;
         // Publish the effective theme for the subtree — INSIDE the try so the finally
         // restores it on every exit (including an exception during child mount below).
         // Children mounted inside MountXxx and this element's own ApplyResourceOverrides
@@ -98,6 +105,7 @@ public sealed partial class Reconciler
         else if (_typeRegistry.TryGetValue(element.GetType(), out var reg))
         {
             control = reg.Mount(element, requestRerender, this);
+            registeredType = true;
         }
         else if (TryResolveFromControlRegistry(element.GetType(), out v1Entry))
         {
@@ -140,6 +148,9 @@ public sealed partial class Reconciler
             if (ReactorFeatureFlags.HighlightReconcileChanges
                 && _highlightMounted is not null)
                 _highlightMounted.Add(control);
+            if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
+                && !(registeredType && ForwardsAnotherElement(control, element)))
+                PublishSource(control, element);
         }
 
         // Issue #345 — one-time debug warning for HStack/VStack collapsing to 0×0 inside a
@@ -179,7 +190,7 @@ public sealed partial class Reconciler
         if (control is WinUI.TitleBar tbCtl)
         {
             if (element is TitleBarElement tbEl)
-                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl);
+                TitleBarElement.SyncControlHeightAfterModifiers(tbCtl, tbEl, TitleBarElement.WindowFor(this, tbCtl));
 
             // Anything that changed since the pre-modifier observation came from a
             // modifier; whether it recurs depends on the phase.
@@ -244,6 +255,7 @@ public sealed partial class Reconciler
         }
         finally
         {
+            _reconcilingElement = prevReconcilingElement;
             if (pushedStagger)
                 PopStaggerScope();
             if (ctxCount > 0)
@@ -693,12 +705,7 @@ public sealed partial class Reconciler
             // previous row before WinUI hands the container to a new one.
             PropagateItemAutomationName(args.ItemContainer, null);
             if (args.ItemContainer.ContentTemplateRoot is ContentControl oldCc)
-            {
-                if (oldCc.Content is UIElement oldCtrl)
-                    UnmountChild(oldCtrl);
-                oldCc.Content = null;
-                ClearElementTag(oldCc);
-            }
+                UnmountItemView(oldCc, clearContent: true);
             return;
         }
 
@@ -712,8 +719,16 @@ public sealed partial class Reconciler
         if (viewSource is not null && args.ItemIndex >= 0 && args.ItemIndex < viewSource.ItemCount
             && args.ItemContainer.ContentTemplateRoot is ContentControl cc)
         {
-            var itemElement = viewSource.BuildItemView(args.ItemIndex);
+            // Realization runs from layout, outside the traversal — replay the
+            // host's provider stack so the row sees its ancestors' context.
+            using var realization = EnterRealization((UIElement)sender!);
+            using var realizationTheme = EnterRealizationTheme(args.ItemContainer);
+            // WinUI can re-realize a container without first raising the recycle event
+            // for its previous row; unmount that row's view or its components leak.
+            UnmountItemView(cc, clearContent: false);
+            var itemElement = BuildKeyedItemView(viewSource, args.ItemIndex);
             var ctrl = Mount(itemElement, requestRerender);
+            EnsureItemIdentity(ctrl, itemElement);
             cc.Content = ctrl;
             SetElementTag(cc, itemElement); // Store for later reconciliation
 
@@ -732,6 +747,23 @@ public sealed partial class Reconciler
         }
     }
 
+    /// <summary>
+    /// Unmounts the item view a templated items control's container hosts. The container's
+    /// element tag marks the view as live: a sweep of parked containers
+    /// (<see cref="SweepParkedContainers"/>) unmounts a view but leaves its visuals in
+    /// place for a delete transition, and clears the tag so no path unmounts it twice.
+    /// </summary>
+    internal void UnmountItemView(ContentControl cc, bool clearContent)
+    {
+        if (GetElementTag(cc) is not null)
+        {
+            if (cc.Content is UIElement view)
+                UnmountChild(view);
+            ClearElementTag(cc);
+        }
+        if (clearContent)
+            cc.Content = null;
+    }
     /// <summary>
     /// Issue #951 — forwards an author-declared automation name from the item
     /// view's root onto its generated <c>ListViewItem</c> / <c>GridViewItem</c>.
@@ -885,11 +917,15 @@ public sealed partial class Reconciler
         // changes propagate SelfTriggered up through all component ancestors.
         var componentRerender = CreateComponentRerender(node, requestRerender);
 
+        bool traceRendered = Diagnostics.ComponentRenderTrace.IsEnabled;
+        long renderedStart = traceRendered ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+
+        bool renderReported = false;
         Element childElement;
         bool inEffects = false;
         try
         {
-            component.Context.BeginRender(componentRerender, _contextScope);
+            component.Context.BeginRender(componentRerender, _contextScope, Owner);
             using (ValidationRenderScope.Begin(ReadContext(ValidationContexts.Current)))
             {
                 childElement = ValidationRenderScope.ApplyProvide(component.Render());
@@ -904,20 +940,46 @@ public sealed partial class Reconciler
         catch (Exception ex) when ((_errorBoundaryDepth > 0 || ex is OutOfMemoryException or StackOverflowException)
             && !RenderErrorDispatch.IsPropagating(ex))
         {
+            // The render still happened: report it, as the trailing arm does for the rest.
+            if (traceRendered)
+                EmitComponentRendered(node, null, compElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
             EmitRenderError(Diagnostics.ComponentNames.For(component, compElement), ex);
             throw;
         }
         catch (Exception ex) when (_errorBoundaryDepth == 0 && ex is not OutOfMemoryException and not StackOverflowException && !RenderErrorDispatch.IsPropagating(ex))
         {
+            // Report before building the fallback: its time is not this render's, and a
+            // fallback that throws must not swallow the event.
+            if (traceRendered)
+            {
+                EmitComponentRendered(node, null, compElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+                renderReported = true;
+            }
             var failedName = Diagnostics.ComponentNames.For(component, compElement);
             _logger?.LogError(ex, "Component Render() threw during mount: {ComponentName}", failedName);
             // Before the fallback: the app's handler may call Propagate(), which throws.
             EmitRenderError(failedName, ex);
             childElement = BuildInTreeFallback(ex, inEffects, component.GetType().Name);
         }
-        UIElement? childControl = Mount(childElement, componentRerender);
+        // Every other exception propagates (to an enclosing ErrorBoundary, or a fatal one
+        // to the host); the render still happened, so report it (the wrapper is
+        // discarded, so no registry entry) and rethrow.
+        catch (Exception) when (traceRendered)
+        {
+            EmitComponentRendered(node, null, compElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+            throw;
+        }
+        if (traceRendered && !renderReported)
+            EmitComponentRendered(node, null, compElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+        UIElement? childControl = global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
+            ? MountUnderOwner(childElement, componentRerender, Diagnostics.ReactorSourceFormat.ComponentName(component, compElement))
+            : Mount(childElement, componentRerender);
 
         wrapper.Child = childControl;
+        // Map the id only once the subtree has mounted: a descendant that throws into an
+        // enclosing ErrorBoundary discards this wrapper without unmounting it.
+        if (traceRendered)
+            TrackMountedComponent(node, wrapper);
         node.RenderedElement = childElement;
         // Spec 010 - see MountErrorBoundary: the wrapper is the realized control an
         // inspector hits, so it has to carry the call site. Free when unstamped.
@@ -940,11 +1002,15 @@ public sealed partial class Reconciler
         // changes propagate SelfTriggered up through all component ancestors.
         var componentRerender = CreateComponentRerender(node, requestRerender);
 
+        bool traceRendered = Diagnostics.ComponentRenderTrace.IsEnabled;
+        long renderedStart = traceRendered ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+
+        bool renderReported = false;
         Element childElement;
         bool inEffects = false;
         try
         {
-            ctx.BeginRender(componentRerender, _contextScope);
+            ctx.BeginRender(componentRerender, _contextScope, Owner);
             using (ValidationRenderScope.Begin(ReadContext(ValidationContexts.Current)))
             {
                 childElement = ValidationRenderScope.ApplyProvide(funcElement.RenderFunc(ctx));
@@ -959,19 +1025,44 @@ public sealed partial class Reconciler
         catch (Exception ex) when ((_errorBoundaryDepth > 0 || ex is OutOfMemoryException or StackOverflowException)
             && !RenderErrorDispatch.IsPropagating(ex))
         {
+            if (traceRendered)
+                EmitComponentRendered(node, null, funcElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
             EmitRenderError(Diagnostics.ComponentNames.For(null, funcElement), ex);
             throw;
         }
         catch (Exception ex) when (_errorBoundaryDepth == 0 && ex is not OutOfMemoryException and not StackOverflowException && !RenderErrorDispatch.IsPropagating(ex))
         {
+            // Report before building the fallback: its time is not this render's, and a
+            // fallback that throws must not swallow the event.
+            if (traceRendered)
+            {
+                EmitComponentRendered(node, null, funcElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+                renderReported = true;
+            }
             _logger?.LogError(ex, "FuncComponent Render() threw during mount");
             // Before the fallback: the app's handler may call Propagate(), which throws.
             EmitRenderError(Diagnostics.ComponentNames.For(null, funcElement), ex);
             childElement = BuildInTreeFallback(ex, inEffects, componentName: null);
         }
-        UIElement? childControl = Mount(childElement, componentRerender);
+        // Every other exception propagates (to an enclosing ErrorBoundary, or a fatal one
+        // to the host); the render still happened, so report it (the wrapper is
+        // discarded, so no registry entry) and rethrow.
+        catch (Exception) when (traceRendered)
+        {
+            EmitComponentRendered(node, null, funcElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+            throw;
+        }
+        if (traceRendered && !renderReported)
+            EmitComponentRendered(node, null, funcElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+        UIElement? childControl = global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
+            ? MountUnderOwner(childElement, componentRerender, nameof(FuncElement))
+            : Mount(childElement, componentRerender);
 
         wrapper.Child = childControl;
+        // Map the id only once the subtree has mounted: a descendant that throws into an
+        // enclosing ErrorBoundary discards this wrapper without unmounting it.
+        if (traceRendered)
+            TrackMountedComponent(node, wrapper);
         node.RenderedElement = childElement;
         // Spec 010 - see MountErrorBoundary: the wrapper is the realized control an
         // inspector hits, so it has to carry the call site. Free when unstamped.
@@ -995,11 +1086,15 @@ public sealed partial class Reconciler
         // changes propagate SelfTriggered up through all component ancestors.
         var componentRerender = CreateComponentRerender(node, requestRerender);
 
+        bool traceRendered = Diagnostics.ComponentRenderTrace.IsEnabled;
+        long renderedStart = traceRendered ? global::System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+
+        bool renderReported = false;
         Element childElement;
         bool inEffects = false;
         try
         {
-            ctx.BeginRender(componentRerender, _contextScope);
+            ctx.BeginRender(componentRerender, _contextScope, Owner);
             using (ValidationRenderScope.Begin(ReadContext(ValidationContexts.Current)))
             {
                 childElement = ValidationRenderScope.ApplyProvide(memoElement.RenderFunc(ctx));
@@ -1014,19 +1109,44 @@ public sealed partial class Reconciler
         catch (Exception ex) when ((_errorBoundaryDepth > 0 || ex is OutOfMemoryException or StackOverflowException)
             && !RenderErrorDispatch.IsPropagating(ex))
         {
+            if (traceRendered)
+                EmitComponentRendered(node, null, memoElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
             EmitRenderError(Diagnostics.ComponentNames.For(null, memoElement), ex);
             throw;
         }
         catch (Exception ex) when (_errorBoundaryDepth == 0 && ex is not OutOfMemoryException and not StackOverflowException && !RenderErrorDispatch.IsPropagating(ex))
         {
+            // Report before building the fallback: its time is not this render's, and a
+            // fallback that throws must not swallow the event.
+            if (traceRendered)
+            {
+                EmitComponentRendered(node, null, memoElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+                renderReported = true;
+            }
             _logger?.LogError(ex, "MemoComponent Render() threw during mount");
             // Before the fallback: the app's handler may call Propagate(), which throws.
             EmitRenderError(Diagnostics.ComponentNames.For(null, memoElement), ex);
             childElement = BuildInTreeFallback(ex, inEffects, componentName: null);
         }
-        UIElement? childControl = Mount(childElement, componentRerender);
+        // Every other exception propagates (to an enclosing ErrorBoundary, or a fatal one
+        // to the host); the render still happened, so report it (the wrapper is
+        // discarded, so no registry entry) and rethrow.
+        catch (Exception) when (traceRendered)
+        {
+            EmitComponentRendered(node, null, memoElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+            throw;
+        }
+        if (traceRendered && !renderReported)
+            EmitComponentRendered(node, null, memoElement, Diagnostics.ComponentRenderTrace.Reasons.Mount, renderedStart);
+        UIElement? childControl = global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled
+            ? MountUnderOwner(childElement, componentRerender, nameof(MemoElement))
+            : Mount(childElement, componentRerender);
 
         wrapper.Child = childControl;
+        // Map the id only once the subtree has mounted: a descendant that throws into an
+        // enclosing ErrorBoundary discards this wrapper without unmounting it.
+        if (traceRendered)
+            TrackMountedComponent(node, wrapper);
         node.RenderedElement = childElement;
         // Spec 010 - see MountErrorBoundary: the wrapper is the realized control an
         // inspector hits, so it has to carry the call site. Free when unstamped.

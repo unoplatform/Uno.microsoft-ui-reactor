@@ -162,11 +162,25 @@ public abstract class Component
     protected void UseClosingGuard(Func<bool> canClose)
         => Context.UseClosingGuard(canClose);
 
-    protected Task<global::Windows.Storage.StorageFile?> UseFilePickerAsync(FilePickerOptions options)
-        => Context.UseFilePickerAsync(options);
+    /// <summary>Opens a single-file picker owned by this component's window. Not a hook: call from a UI-thread event handler.</summary>
+    protected Task<Microsoft.Windows.Storage.Pickers.PickFileResult?> PickFileAsync(FilePickerOptions options)
+        => Context.PickFileAsync(options);
 
-    protected Task<global::Windows.Storage.StorageFolder?> UseFolderPickerAsync(FolderPickerOptions options)
-        => Context.UseFolderPickerAsync(options);
+    /// <summary>Opens a multiple-file picker owned by this component's window. Not a hook: call from a UI-thread event handler.</summary>
+    protected Task<IReadOnlyList<Microsoft.Windows.Storage.Pickers.PickFileResult>> PickMultipleFilesAsync(FilePickerOptions options)
+        => Context.PickMultipleFilesAsync(options);
+
+    /// <summary>Opens a single-folder picker owned by this component's window. Not a hook: call from a UI-thread event handler.</summary>
+    protected Task<Microsoft.Windows.Storage.Pickers.PickFolderResult?> PickFolderAsync(FolderPickerOptions options)
+        => Context.PickFolderAsync(options);
+
+    /// <summary>Opens a multiple-folder picker owned by this component's window. Not a hook: call from a UI-thread event handler.</summary>
+    protected Task<IReadOnlyList<Microsoft.Windows.Storage.Pickers.PickFolderResult>> PickMultipleFoldersAsync(FolderPickerOptions options)
+        => Context.PickMultipleFoldersAsync(options);
+
+    /// <summary>Opens a save-file picker owned by this component's window. Not a hook: call from a UI-thread event handler.</summary>
+    protected Task<Microsoft.Windows.Storage.Pickers.PickFileResult?> PickSaveFileAsync(SaveFilePickerOptions options)
+        => Context.PickSaveFileAsync(options);
 
     /// <summary>Subscribes to the host window's position-changed event and re-renders on move. (spec 054 §5.5)</summary>
     protected (double X, double Y) UseWindowPosition()
@@ -309,6 +323,11 @@ public abstract class Component
         InfiniteResourceOptions? options = null)
         => Context.UseInfiniteResource(fetchPage, deps, options);
 
+    /// <summary>Projects a data source into a paged resource using the ambient query cache.</summary>
+    /// <remarks>
+    /// When <paramref name="options"/> is non-null, its PageSize (default 50) takes precedence.
+    /// Otherwise, <c>request.PageSize</c> is used. The effective page size is at least 1.
+    /// </remarks>
     protected InfiniteResource<TItem> UseDataSource<TItem>(
         Data.IDataSource<TItem> source,
         Data.DataRequest request,
@@ -327,6 +346,12 @@ public abstract class Component
 internal interface IPropsReceiver
 {
     void SetProps(object props);
+
+    /// <summary>Boxed current props, for diagnostics (no reflection).</summary>
+    object? PropsBoxed { get; }
+
+    /// <summary>The declared props type (<c>TProps</c>), for diagnostics.</summary>
+    Type PropsType { get; }
 }
 
 /// <summary>
@@ -349,6 +374,10 @@ public abstract class Component<TProps> : Component, IPropsReceiver, IPropsCompa
     public TProps Props { get; internal set; } = default!;
 
     void IPropsReceiver.SetProps(object props) => Props = (TProps)props;
+
+    object? IPropsReceiver.PropsBoxed => Props;
+
+    Type IPropsReceiver.PropsType => typeof(TProps);
 
     bool IPropsComparable.CompareProps(object? oldProps, object? newProps)
         => ShouldUpdate((TProps?)oldProps, (TProps?)newProps);

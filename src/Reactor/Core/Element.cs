@@ -89,7 +89,8 @@ public abstract record Element
     {
         get => Extensions?.CallSite;
         init => Extensions = value is null && Extensions is null ? null
-            : NormalizeExtras(Extensions is null ? new ElementExtras { CallSite = value } : Extensions with { CallSite = value });
+            : Extensions is null ? ElementExtras.ForCallSiteOnly(value!.Value)
+            : NormalizeExtras(Extensions with { CallSite = value });
     }
 
     /// <summary>
@@ -1299,7 +1300,7 @@ public abstract record Element
             // new one — otherwise the shallow-skip path strands a stale ElementRef.
             && ReferenceEquals(a.Ref, b.Ref)
             // Imperative teardown slot (.OnUnmount). ApplyModifiers re-registers the
-            // latest OnUnmountAction (Reconciler._onUnmountActions) on every non-skip
+            // latest OnUnmountAction (ReactorState.UnmountAction) on every non-skip
             // Update, and that captured delegate is what fires at unmount — so a
             // changed teardown closure must decline the skip or the stale (first-render)
             // action is stranded and runs in place of the current one. Unlike
@@ -1498,8 +1499,8 @@ public abstract record Element
 
         // Literals: compare by VALUE. Brushes are re-parsed to fresh instances each render
         // (e.g. .Set("X", "#0078D4")), so reference compare would false-decline the skip for
-        // an UNCHANGED literal-override cell — use BrushesEqual; other literal kinds (double,
-        // CornerRadius) are value types whose Equals is correct.
+        // an UNCHANGED literal-override cell. FontFamily also compares by value (Source),
+        // not WinRT wrapper identity. The remaining literal kinds are value types.
         var la = a.Literals;
         var lb = b.Literals;
         if (la.Count != lb.Count) return false;
@@ -1526,6 +1527,8 @@ public abstract record Element
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
         if (a is Brush ba && b is Brush bb) return BrushesEqual(ba, bb);
+        if (a is Microsoft.UI.Xaml.Media.FontFamily fa && b is Microsoft.UI.Xaml.Media.FontFamily fb)
+            return FontFamiliesEqual(fa, fb);
         return a.Equals(b);
     }
 }
@@ -1979,6 +1982,23 @@ public record ElementExtras
     /// field explicitly set to null stays symmetric (PR #455 CR item #2).
     /// </summary>
     internal bool IsEmpty => IsBehaviorallyEmpty && CallSite is null;
+
+    /// <summary>
+    /// The bucket for an element whose only extra is its call site. Stamping (the source-map
+    /// interceptors, <c>REACTOR_SOURCEMAP=1</c> / diagnostics mode) gives every element one,
+    /// and the records are immutable, so elements from the same call site share one instance
+    /// instead of each retaining a ~150 B bucket. Bounded by the app's call sites. Lives in a
+    /// holder class so an app that never stamps never allocates the cache.
+    /// </summary>
+    internal static ElementExtras ForCallSiteOnly(SourceLocation site) => CallSiteOnly.Get(site);
+
+    private static class CallSiteOnly
+    {
+        private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<SourceLocation, ElementExtras> s_cache = new();
+
+        internal static ElementExtras Get(SourceLocation site)
+            => s_cache.GetOrAdd(site, static s => new ElementExtras { CallSite = s });
+    }
 
     /// <summary>
     /// True when every bucketed field EXCEPT <see cref="CallSite"/> is null —
@@ -2816,7 +2836,22 @@ public partial record TreeViewNodeData(string Content, TreeViewNodeData[]? Child
 
 public record MenuBarItemData(string Title, MenuFlyoutItemBase[] Items);
 
-public abstract record MenuFlyoutItemBase;
+public abstract record MenuFlyoutItemBase
+{
+    /// <summary>
+    /// Where this item was created in C#, stamped by the source map on the
+    /// <c>MenuItem(…)</c> / <c>ToggleMenuItem(…)</c> / … factory call (the same mechanism as
+    /// <see cref="Element.CallSite"/>). The realized menu item publishes it for inspectors.
+    /// Not part of equality, like <see cref="Element.CallSite"/>.
+    /// </summary>
+    public SourceLocation? CallSite
+    {
+        get => _callSite.Value;
+        init => _callSite = new(value);
+    }
+
+    private readonly EqualityIgnored<SourceLocation> _callSite;
+}
 public record MenuFlyoutItemData(string Text, Action? OnClick = null, string? Icon = null) : MenuFlyoutItemBase
 {
     public bool IsEnabled { get; init; } = true;
@@ -2860,7 +2895,22 @@ public partial record IconElement(IconData Data) : Element
     internal Action<WinUI.IconElement>[] Setters { get; init; } = [];
 }
 
-public abstract record AppBarItemBase;
+public abstract record AppBarItemBase
+{
+    /// <summary>
+    /// Where this command was created in C#, stamped by the source map on the
+    /// <c>AppBarButton(…)</c> / <c>AppBarToggleButton(…)</c> / <c>AppBarSeparator()</c> factory
+    /// call (the same mechanism as <see cref="Element.CallSite"/>). The realized command
+    /// publishes it for inspectors. Not part of equality, like <see cref="Element.CallSite"/>.
+    /// </summary>
+    public SourceLocation? CallSite
+    {
+        get => _callSite.Value;
+        init => _callSite = new(value);
+    }
+
+    private readonly EqualityIgnored<SourceLocation> _callSite;
+}
 public record AppBarButtonData(string Label, Action? OnClick = null, string? Icon = null) : AppBarItemBase
 {
     public bool IsEnabled { get; init; } = true;
@@ -3824,10 +3874,9 @@ public partial record AutoSuggestBoxElement(
     // reused verbatim from the hand-written descriptor (shared AutoSuggestBoxEventPayload).
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<AutoSuggestBoxElement, WinUI.AutoSuggestBox> d)
-        => d.OneWayConditional(
+        => d.OneWay(
                 get:         static e => e.Suggestions,
-                set:         static (c, v) => c.ItemsSource = v,
-                shouldWrite: static e => e.Suggestions.Length > 0)
+                set:         static (c, v) => c.ItemsSource = v.Length > 0 ? v : null)
             .HandCodedControlled<global::Microsoft.UI.Reactor.Core.V1Protocol.AutoSuggestBoxEventPayload, string,
                 global::Windows.Foundation.TypedEventHandler<WinUI.AutoSuggestBox, WinUI.AutoSuggestBoxTextChangedEventArgs>>(
                 get:         static e => e.Text,
@@ -4328,12 +4377,31 @@ public partial record PersonPictureElement() : Element
 [global::Microsoft.UI.Reactor.Wrappers.WrapManual("ProfilePicture")]
 public partial record PersonPictureElement
 {
+    // Issue #1460: a null, empty, malformed, or relative value (WinRT image sources need
+    // an absolute URI) clears the picture so the control falls back to initials/glyph,
+    // instead of throwing mid-reconcile or leaving a stale image from a prior render.
     private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PersonPictureElement, WinUI.PersonPicture> Customize(
         global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<PersonPictureElement, WinUI.PersonPicture> d)
-        => d.OneWayConditional<string>(
-            static e => e.ProfilePicture!,
-            static (c, v) => c.ProfilePicture = new global::Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new global::System.Uri(v, global::System.UriKind.RelativeOrAbsolute)),
-            static e => e.ProfilePicture is not null);
+        => d.OneWay<string?>(
+            static e => e.ProfilePicture,
+            static (c, v) =>
+            {
+                if (TryParseProfilePictureUri(v, out var uri))
+                {
+                    c.ProfilePicture = new global::Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                }
+                else if (!ReferenceEquals(c.ReadLocalValue(WinUI.PersonPicture.ProfilePictureProperty), DependencyProperty.UnsetValue))
+                {
+                    // Only clear an existing local value — a fresh control has nothing to reset.
+                    c.ClearValue(WinUI.PersonPicture.ProfilePictureProperty);
+                }
+            });
+
+    internal static bool TryParseProfilePictureUri(string? value, [NotNullWhen(true)] out Uri? uri)
+    {
+        uri = null;
+        return !string.IsNullOrWhiteSpace(value) && Uri.TryCreate(value, UriKind.Absolute, out uri);
+    }
 }
 
 // Spec 058 §15 (P5.16) — Source auto-maps but all 4 events are bespoke typed-arg
@@ -4685,10 +4753,11 @@ public partial record ScrollViewElement(Element Child) : Element
 /// <summary>Border element — a single-child container with brush/corner/thickness chrome.</summary>
 // Spec 058 §15 (P5.18) — Child is the single-content slot ([WrapContent]); CornerRadius and
 // BorderThickness are ergonomic double scalars converted to the WinUI structs ([WrapConvert]);
-// Background/BorderBrush auto-map (Brush is a supported reference). No events. Replaces the
-// hand-coded BorderHandler + the parallel hand-written BorderDescriptor.
+// BorderBrush auto-maps; unset Background restores a concrete modifier or releases local
+// precedence to theme styles. No events. Replaces BorderHandler + BorderDescriptor.
 [global::Microsoft.UI.Reactor.Wrappers.GenerateReactorDescriptor(typeof(WinUI.Border))]
 [global::Microsoft.UI.Reactor.Wrappers.WrapContent("Child")]
+[global::Microsoft.UI.Reactor.Wrappers.WrapManual("Background")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapConvert("CornerRadius")]
 [global::Microsoft.UI.Reactor.Wrappers.WrapConvert("BorderThickness")]
 public partial record BorderElement(Element? Child) : Element
@@ -4698,6 +4767,27 @@ public partial record BorderElement(Element? Child) : Element
     public Brush? BorderBrush { get; init; }
     public double? BorderThickness { get; init; }
     internal Action<WinUI.Border>[] Setters { get; init; } = [];
+
+    private static partial global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<BorderElement, WinUI.Border> Customize(
+        global::Microsoft.UI.Reactor.Core.V1Protocol.Descriptor.ControlDescriptor<BorderElement, WinUI.Border> d)
+        => d.OneWay<(Brush? Record, Brush? Modifier)>(
+            // The modifier is part of the value so removing it (or the record) rewrites the
+            // remaining brush here, before native setters run. ApplyModifiers skips unchanged
+            // brushes and leaves the clear of a modifier this entry saw to it.
+            static e => e.Background is null && e.Modifiers?.Background is null
+                ? Optional<(Brush? Record, Brush? Modifier)>.Unset
+                : (e.Background, e.Modifiers?.Background),
+            static (border, brushes) => border.Background = brushes.Record ?? brushes.Modifier,
+            WinUI.Border.BackgroundProperty)
+        // Tell the reconciler the removed modifier was handled here, so ApplyModifiers keeps the
+        // brush this entry restored. A custom handler for BorderElement never marks it.
+        .ImperativeBridged(
+            static (_, _, _) => { },
+            static (ctx, border, oldEl, newEl) =>
+            {
+                if (oldEl.Modifiers?.Background is not null && newEl.Modifiers?.Background is null)
+                    ctx.Reconciler.MarkBackgroundRemovalHandled(border);
+            });
 }
 
 /// <summary>Expander element. <c>IsExpanded</c> defaults to <see cref="Optional{T}.Unset"/> so the control owns its expansion state until explicitly set.</summary>
@@ -4767,6 +4857,13 @@ public partial record ExpanderElement(
                         oldEl.HeaderTemplate, newEl.HeaderTemplate, existing, ctx.RequestRerender);
                     if (!ReferenceEquals(existing, next))
                         c.Header = next;
+                },
+                unmount: static (ctx, c) =>
+                {
+                    if (Reconciler.GetElementTag(c) is not ExpanderElement { HeaderTemplate: not null }) return;
+                    if (c.Header is global::Microsoft.UI.Xaml.UIElement child)
+                        ctx.Reconciler.UnmountChild(child);
+                    c.Header = null;
                 })
             .OneWayConditional(
                 get:         static e => e.Header ?? string.Empty,
@@ -5221,15 +5318,23 @@ public partial record TitleBarElement(
             },
         });
         return d
-            .Imperative(
-                mount:  static (c, e) => global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.Apply(c, e, force: true),
-                update: static (c, _, e) => global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.Apply(c, e, force: false))
-            .Imperative(
-                mount: static (c, e) => RegisterWindowTitleBar(c, e),
-                update: static (c, _, e) =>
+            // Bridged so the handlers read the owning window from the reconciler mounting the
+            // control, not from ReactorApp.ActiveHostInternal, which a window opened mid-render
+            // repoints and which virtualized-row and ReactorHostControl renders never scope.
+            .ImperativeBridged(
+                mount:  static (ctx, c, e) => global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.Apply(
+                    c, e, ctx.Reconciler.Owner?.ReactorWindow, force: true),
+                update: static (ctx, c, _, e) => global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.Apply(
+                    c, e, WindowFor(ctx.Reconciler, c), force: false))
+            .ImperativeBridged(
+                mount: static (ctx, c, e) => RegisterWindowTitleBar(c, e, ctx.Reconciler),
+                update: static (ctx, c, _, e) =>
                 {
-                    ApplyTitleBarPreferredTheme(c, e);
-                    ApplyTitleBarHeightOption(c, e);
+                    var window = WindowFor(ctx.Reconciler, c);
+                    if (ctx.Reconciler.HostWindow is null && s_embedded.TryGetValue(c, out var embedded))
+                        embedded.Element = e;
+                    ApplyTitleBarPreferredTheme(c, e, window);
+                    ApplyTitleBarHeightOption(c, e, window);
                 })
             .HandCodedEvent<global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarEventPayload,
                 global::Windows.Foundation.TypedEventHandler<WinUI.TitleBar, object>>(
@@ -5250,38 +5355,124 @@ public partial record TitleBarElement(
     // Issue #511 / PR #455 regression: ExtendsContentIntoTitleBar must flip BEFORE the WinUI
     // TitleBar's own Loaded handler runs UpdatePaddingsForCaptionButtons(); apply synchronously
     // in the Imperative mount (mirrors the legacy MountTitleBar path).
-    private static void RegisterWindowTitleBar(WinUI.TitleBar titleBar, TitleBarElement element)
+    private static void RegisterWindowTitleBar(
+        WinUI.TitleBar titleBar, TitleBarElement element, global::Microsoft.UI.Reactor.Core.Reconciler reconciler)
     {
-        if (global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal is { } host)
+        // The XAML window of the ReactorHost whose reconciler mounts this control.
+        if (reconciler.HostWindow is { } hostWindow)
         {
-            var owningWindow = host.OwningWindow;
-            // Record that a WinUI TitleBar control is mounted in this window —
-            // including the explicit-false case below where we skip SetTitleBar.
-            // The control corrupts the heap on teardown when the window is NOT in
-            // content-extended mode, so the window flips ExtendsContentIntoTitleBar
-            // back to true just before native close. (issue #537)
-            owningWindow?.MarkTitleBarControlPresent(titleBar);
-            // The caption theme is legal whether or not the window is content-extended,
-            // so it is applied ahead of the explicit-false early return. (issue #1297)
-            ApplyTitleBarPreferredTheme(titleBar, element);
-
-            var explicitValue = owningWindow?.Spec.ExtendsContentIntoTitleBar;
-            if (explicitValue == false) return;
-            if (explicitValue is null)
-                host.Window.ExtendsContentIntoTitleBar = true;
-            host.Window.SetTitleBar(titleBar);
+            RegisterWithWindow(titleBar, element, hostWindow, reconciler.Owner?.ReactorWindow);
+            return;
         }
 
-        ApplyTitleBarHeightOption(titleBar, element);
+        // ReactorHostControl content: no host window is known at mount, and the ambient host
+        // may be an unrelated window. Apply the element's own height now and register with
+        // the ReactorWindow that actually contains the control once it is loaded.
+        ApplyTitleBarHeightOption(titleBar, element, window: null);
+        var embedded = s_embedded.GetOrCreateValue(titleBar);
+        embedded.Element = element;
+        reconciler.TrackEmbeddedTitleBar(titleBar);
+        titleBar.Loaded -= s_onEmbeddedTitleBarLoaded;
+        titleBar.Loaded += s_onEmbeddedTitleBarLoaded;
+        if (titleBar.IsLoaded) RegisterEmbeddedTitleBar(titleBar);
+    }
+
+    private static void RegisterWithWindow(
+        WinUI.TitleBar titleBar, TitleBarElement element,
+        global::Microsoft.UI.Xaml.Window hostWindow, global::Microsoft.UI.Reactor.ReactorWindow? owningWindow)
+    {
+        // Record that a WinUI TitleBar control is mounted in this window —
+        // including the explicit-false case below where we skip SetTitleBar.
+        // The control corrupts the heap on teardown when the window is NOT in
+        // content-extended mode, so the window flips ExtendsContentIntoTitleBar
+        // back to true just before native close. (issue #537)
+        owningWindow?.MarkTitleBarControlPresent(titleBar);
+        // The caption theme is legal whether or not the window is content-extended,
+        // so it is applied ahead of the explicit-false early return. (issue #1297)
+        ApplyTitleBarPreferredTheme(titleBar, element, owningWindow);
+
+        var explicitValue = owningWindow?.Spec.ExtendsContentIntoTitleBar;
+        if (explicitValue == false) return;
+        if (explicitValue is null)
+            hostWindow.ExtendsContentIntoTitleBar = true;
+        hostWindow.SetTitleBar(titleBar);
+
+        ApplyTitleBarHeightOption(titleBar, element, owningWindow);
+    }
+
+    // A TitleBar inside ReactorHostControl content, waiting for (or registered with) the
+    // ReactorWindow that contains it. Keyed on the control, like TitleBarIconDefault's record.
+    private sealed class EmbeddedTitleBar
+    {
+        public TitleBarElement Element = null!;
+        public global::Microsoft.UI.Reactor.ReactorWindow? Window;
+    }
+
+    private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<WinUI.TitleBar, EmbeddedTitleBar> s_embedded = new();
+
+    private static readonly global::Microsoft.UI.Xaml.RoutedEventHandler s_onEmbeddedTitleBarLoaded =
+        static (s, _) => { if (s is WinUI.TitleBar bar) RegisterEmbeddedTitleBar(bar); };
+
+    // Issue #1396 / #537: a WinUI TitleBar torn down in a window that is not content-extended
+    // corrupts the heap. A TitleBar in ReactorHostControl content therefore registers with the
+    // ReactorWindow that actually hosts it — found from its XamlRoot, never from the ambient
+    // host — exactly as a TitleBar rendered by that window's own host would. Runs on every
+    // Loaded: ReactorHostControl keeps its content across reparenting, so an embed moved to
+    // another window re-registers there. Content hosted by a plain WinUI Window (no
+    // ReactorWindow) has no window to register with.
+    private static void RegisterEmbeddedTitleBar(WinUI.TitleBar titleBar)
+    {
+        if (!s_embedded.TryGetValue(titleBar, out var embedded)) return;
+        var window = global::Microsoft.UI.Reactor.ReactorApp.FindWindowForXamlRoot(titleBar.XamlRoot);
+        if (ReferenceEquals(window, embedded.Window)) return;
+
+        if (embedded.Window is { IsClosingOrDisposed: false } previous)
+            previous.ClearTitleBarControl(titleBar);
+        embedded.Window = window;
+        if (window is null) return;
+
+        // The provisional mount-time height (no window known yet) is framework-owned; hand
+        // the control's height to the window, which applies its own spec-over-element
+        // precedence. An author's explicit .Height(...) is left alone.
+        if (embedded.Element.Modifiers?.Height is null
+            && (double.IsNaN(titleBar.Height)
+                || global::System.Math.Abs(titleBar.Height - TallTitleBarControlHeight) < 0.01))
+            titleBar.ClearValue(global::Microsoft.UI.Xaml.FrameworkElement.HeightProperty);
+        RegisterWithWindow(titleBar, embedded.Element, window.NativeWindow, window);
+        // Out of band like ApplyChrome's resync: keeps an icon a setter or the element owns.
+        global::Microsoft.UI.Reactor.Core.V1Protocol.TitleBarIconDefault.ResyncInheritedIcon(
+            titleBar, window.Spec, window.DeclaredIconApplied, window.UnloadableConventionIconPath);
+    }
+
+    /// <summary>
+    /// The window a mounted TitleBar is registered with: the reconciler's owning window, or for
+    /// ReactorHostControl content the window found once the control loaded (issue #1396).
+    /// </summary>
+    internal static global::Microsoft.UI.Reactor.ReactorWindow? WindowFor(
+        global::Microsoft.UI.Reactor.Core.Reconciler reconciler, WinUI.TitleBar titleBar)
+    {
+        if (reconciler.HostWindow is not null) return reconciler.Owner?.ReactorWindow;
+        return s_embedded.TryGetValue(titleBar, out var embedded) ? embedded.Window : null;
+    }
+
+    /// <summary>
+    /// Forgets an unmounting embedded TitleBar and returns the window it registered with, if any.
+    /// </summary>
+    internal static global::Microsoft.UI.Reactor.ReactorWindow? ReleaseEmbedded(WinUI.TitleBar titleBar)
+    {
+        if (!s_embedded.TryGetValue(titleBar, out var embedded)) return null;
+        s_embedded.Remove(titleBar);
+        titleBar.Loaded -= s_onEmbeddedTitleBarLoaded;
+        return embedded.Window;
     }
 
     /// <summary>
     /// Applies <see cref="PreferredTheme"/> to the owning window's caption. A bare
     /// <c>ReactorHost</c> has no caption to theme, so it is a no-op there. (issue #1297)
     /// </summary>
-    private static void ApplyTitleBarPreferredTheme(WinUI.TitleBar titleBar, TitleBarElement element) =>
-        global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow
-            ?.SetElementTitleBarTheme(element.PreferredTheme, titleBar);
+    private static void ApplyTitleBarPreferredTheme(
+        WinUI.TitleBar titleBar, TitleBarElement element, global::Microsoft.UI.Reactor.ReactorWindow? owningWindow) =>
+        owningWindow?.SetElementTitleBarTheme(element.PreferredTheme, titleBar);
 
     /// <summary>
     /// Applies <see cref="HeightOption"/>. (issue #917)
@@ -5303,10 +5494,10 @@ public partial record TitleBarElement(
     /// this entry, writes the author's value.
     /// </para>
     /// </summary>
-    private static void ApplyTitleBarHeightOption(WinUI.TitleBar titleBar, TitleBarElement element)
+    private static void ApplyTitleBarHeightOption(
+        WinUI.TitleBar titleBar, TitleBarElement element, global::Microsoft.UI.Reactor.ReactorWindow? window)
     {
         var explicitHeight = element.Modifiers?.Height is not null;
-        var window = global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
         if (window is not null)
         {
             window.SetElementTitleBarHeight(element.HeightOption, titleBar, explicitHeight);
@@ -5327,10 +5518,10 @@ public partial record TitleBarElement(
     /// still-tall <c>TitleBar(...)</c> falls back to the implied tall height
     /// rather than to auto. No-ops when the author owns the height. (issue #917)
     /// </summary>
-    internal static void SyncControlHeightAfterModifiers(WinUI.TitleBar titleBar, TitleBarElement element)
+    internal static void SyncControlHeightAfterModifiers(
+        WinUI.TitleBar titleBar, TitleBarElement element, global::Microsoft.UI.Reactor.ReactorWindow? window)
     {
         if (element.Modifiers?.Height is not null) return;
-        var window = global::Microsoft.UI.Reactor.ReactorApp.ActiveHostInternal?.OwningWindow;
         if (window is not null) window.SyncTitleBarControlHeight();
         else if (element.HeightOption == WindowTitleBarHeight.Tall)
             titleBar.Height = TallTitleBarControlHeight;
@@ -5645,7 +5836,9 @@ public partial record FlipViewElement(
 /// content is reconciled live while the dialog is open.
 /// OnClosed reports how the dialog was dismissed — the button the user chose,
 /// or <see cref="ContentDialogResult.None"/> for a declared IsOpen = false. It
-/// does not fire when the dialog is torn down because its owner unmounted.
+/// does not fire when the dialog is torn down because its owner unmounted or
+/// its host/reconciler was disposed. Disposal also cancels deferred opens without
+/// OnOpened. State reset needed during teardown belongs in effect cleanup, not OnClosed.
 /// </summary>
 public record ContentDialogElement(
     string Title,
@@ -5677,6 +5870,14 @@ public record FlyoutElement(
     Element FlyoutContent
 ) : Element
 {
+    /// <summary>
+    /// Opens the flyout declaratively. A one-shot trigger: the flyout is shown on mount when
+    /// already <c>true</c>, and on the <c>false</c> → <c>true</c> edge of an update, against any
+    /// target (a Button/SplitButton target holds the flyout in its own <c>Flyout</c> slot, any
+    /// other target as <c>FlyoutBase.AttachedFlyout</c>). Setting it back to <c>false</c> does not
+    /// close the flyout — the user dismisses it. Reset your state from <see cref="OnClosed"/> so
+    /// the next <c>true</c> is a fresh edge.
+    /// </summary>
     public bool IsOpen { get; init; }
     /// <summary>
     /// Preferred position of the flyout relative to its target. Defaults to
@@ -6142,6 +6343,11 @@ public abstract record TemplatedListElementBase : Element, global::Microsoft.UI.
     /// pre-mounts so it does not participate.
     /// </summary>
     internal abstract string GetKeyAt(int index);
+    /// <summary>
+    /// The author's <c>KeySelector</c> key for the item at <paramref name="index"/>, stamped on
+    /// its realized row for diagnostics; <c>null</c> when there is none (no synthetic key).
+    /// </summary>
+    internal virtual string? GetItemIdentityKey(int index) => GetKeyAt(index);
     // §14 Phase 3 close-out — bridge the internal abstract to the public
     // IKeyedItemSource contract via explicit interface implementation so
     // the abstract stays internal (spec 042 decision) while descriptor
@@ -6323,6 +6529,8 @@ public record TemplatedFlipViewElement<T>(
         KeySelector is not null && (uint)index < (uint)Items.Count
             ? KeySelector(Items[index])
             : $"__flip_{index}";
+    internal override string? GetItemIdentityKey(int index) =>
+        KeySelector is not null && (uint)index < (uint)Items.Count ? KeySelector(Items[index]) : null;
     public override void InvokeSelectionChanged(int index) => OnSelectedIndexChanged?.Invoke(index);
     public override void InvokeItemClick(int index) { }
     public override void ApplyControlSetters(object control) =>
@@ -7720,9 +7928,11 @@ public record ItemsViewElement<T>(
 
     public override int ItemCount => Items.Count;
 
+    // A null key passes through (as for the other keyed lists), so the keyed-list binding
+    // reports it and substitutes its positional placeholder.
     internal override string GetKeyAt(int index) =>
         (uint)index < (uint)Items.Count
-            ? (KeySelector(Items[index]) ?? $"__iv_{index}")
+            ? KeySelector(Items[index])!
             : $"__iv_{index}";
 
     /// <summary>
