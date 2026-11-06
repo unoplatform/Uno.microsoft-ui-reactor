@@ -208,9 +208,17 @@ internal sealed class ReactorApplication : Application
             FullScreen = opts.FullScreen,
         };
 
+        // Hot Reload updates a single window: give it the primary one before the
+        // app's configure runs, so an app that registers its own (UseStudio) wins.
+        Action<ReactorHost> configure = host =>
+        {
+            DevServerConnection.TryEnableHotReload(host.Window);
+            opts.Configure?.Invoke(host);
+        };
+
         // The primary window goes through the same construction path as every
         // secondary window opened later via ReactorApp.OpenWindow / UseOpenWindow.
         _primary = ReactorApp.OpenWindowCore(
-            spec, opts.RootFactory, opts.RootRenderFunc, opts.Configure);
+            spec, opts.RootFactory, opts.RootRenderFunc, configure);
     }
 }
