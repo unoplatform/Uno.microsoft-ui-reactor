@@ -67,6 +67,36 @@ you can do without it:
 The shared source has no `#if REACTOR_UNO` blocks: avoid them as much as
 possible, and use the workarounds above instead.
 
+## The upstream sync
+
+`upstream-sync.yml` keeps one pull request open from `automation/upstream-sync` into
+`uno`, and its description lists the Microsoft pull requests it brings in. Merge it
+with a merge commit, never a squash: `uno` has to keep Microsoft's history as an
+ancestor, or the next sync brings all of it again. Auto-merge is set up that way.
+
+It needs the `SYNC_BOT_TOKEN` secret, a token that can push workflow files and open
+pull requests. With the default `GITHUB_TOKEN`, the push is rejected whenever Microsoft
+changed a workflow, and the pull request can't be opened while the repository doesn't
+allow GitHub Actions to create them. The header of `upstream-sync.yml` lists the
+permissions the token needs.
+
+**To keep a Microsoft pull request out of `uno`**, add its number, from Microsoft's
+repository, to `EXCLUDED_UPSTREAM_PRS` at the top of `upstream-sync.yml`, with the
+reason next to it, in a pull request into `uno`. The next sync records it as merged
+without its changes and strikes it through in the list. If the sync pull request
+already contained it, the sync branch is rebuilt, and any conflict resolution pushed
+to it has to be done again.
+
+- It only works for squash or merge-commit pull requests, which is how Microsoft's
+  `main` is merged today. For a rebase-merged one, only the last commit is skipped.
+- Once the sync lands, Git considers those changes merged for good. Removing the number
+  doesn't bring them back: cherry-pick the pull request's commit when `uno` is ready for it.
+- Later Microsoft changes that build on the excluded one can conflict, or fail to build.
+
+To preview a sync without changing anything, run the workflow with `dry_run`
+(`gh workflow run upstream-sync.yml -f dry_run=true`). The run's summary lists what
+it would include.
+
 ## Our workflows on this fork
 
 Microsoft's workflows can't be switched off once and for all: GitHub only lists a
