@@ -107,16 +107,12 @@ app.
 
 **Fix:** two parts.
 - **App MCP:** Uno.UI.App.Mcp **2.0.0-dev.20** fixes the client. Uno.Sdk
-  7.0.0-dev.165 and earlier bring 2.0.0-dev.19.
+  7.0.0-dev.177 and later bring it.
 - **Reactor:** [#35](https://github.com/unoplatform/Uno.microsoft-ui-reactor/pull/35)
   loads the client and registers the window.
 
-Until a Reactor package with #35 ships, do all three in the app:
-
-```xml
-<!-- In the app project, until Uno.Sdk brings 2.0.0-dev.20 or later -->
-<UnoAppMcpVersion>2.0.0-dev.20</UnoAppMcpVersion>
-```
+Until a Reactor package with #35 ships, make both calls in Debug builds, from
+`ReactorApp.Run`'s `configure` callback:
 
 ```csharp
 #if DEBUG
@@ -132,6 +128,13 @@ ReactorApp.Run<MainComponent>("MyApp", configure: host =>
 #pragma warning restore UNO0008
 #endif
 });
+```
+
+On an Uno.Sdk older than 7.0.0-dev.177, also set the App MCP version in the app
+project:
+
+```xml
+<UnoAppMcpVersion>2.0.0-dev.20</UnoAppMcpVersion>
 ```
 
 With these, every App MCP app tool works on desktop. `app tree` shows only the root by
@@ -197,4 +200,5 @@ it's a project reference as in the samples, are expected to miss the generated c
 - **#35 on WebAssembly, Android and iOS**, and with `UseStudio()` called in `configure`.
 
 Verified on Windows 11, between 2026-10-30 and 2026-11-06. Runs used the samples and new
-`unoapp-reactor` apps (Uno.Templates 7.0.0-dev.161), unless a row above says otherwise.
+`unoapp-reactor` apps (Uno.Templates 7.0.0-dev.161, and 7.0.0-dev.177 for the App MCP),
+unless a row above says otherwise.
