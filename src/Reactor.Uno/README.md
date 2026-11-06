@@ -354,17 +354,11 @@ in Debug builds:
 Nothing has to be opted into. There is no `HotReload` UnoFeature, and `.UseStudio()`
 isn't needed: it turns on Hot Design, which doesn't support Reactor apps.
 
-The known issues you're most likely to hit:
+The known issue you're most likely to hit: **a desktop app started with `dotnet run`
+refuses every edit** without `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment.
+IDEs and `dotnet watch` set it.
 
-- **Uno reports each edit as failed**, although the app has updated.
-- **The Uno App MCP doesn't see the app**, so an AI agent can edit the code but not
-  drive the app or check an edit.
-- **A desktop app started with `dotnet run` refuses every edit** without
-  `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment. IDEs and `dotnet watch`
-  set it.
-
-[#35](https://github.com/unoplatform/Uno.microsoft-ui-reactor/pull/35) fixes the first
-two. [HOT-RELOAD.md](HOT-RELOAD.md) has support by launch method and IDE, what doesn't
+[HOT-RELOAD.md](HOT-RELOAD.md) has support by launch method and IDE, what doesn't
 work, and every [known issue](HOT-RELOAD.md#known-issues) with its workaround.
 
 ### From the command line
@@ -429,9 +423,7 @@ apps made from the template, which come without a solution.
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
-- **Hot Reload.** Edits apply, but Uno reports each edit as failed, and the Uno App
-  MCP doesn't see the app, until
-  [#35](https://github.com/unoplatform/Uno.microsoft-ui-reactor/pull/35) ships.
+- **Hot Reload** doesn't work with Rider's debugger or with Hot Design.
   [HOT-RELOAD.md](HOT-RELOAD.md#known-issues) lists the known issues and their
   workarounds.
 - See the **Feature support on Uno Skia** matrix above for what works, what's
