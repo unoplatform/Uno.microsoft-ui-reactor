@@ -22,10 +22,18 @@ class CounterApp : Component
 
         return VStack(12,
             Heading($"Count: {count}"),
+            Component<WindowTitle>(),
             HStack(8,
                 Button("-", () => setCount(count - 1)),
                 Button("+", () => setCount(count + 1))
             )
         ).Padding(24);
     }
+}
+
+// A nested component finds its window through the reconciler's owner, not the root's
+// host; the smoke test checks it found one.
+class WindowTitle : Component
+{
+    public override Element Render() => TextBlock($"Window: {UseWindow()?.Spec.Title ?? "(none)"}");
 }

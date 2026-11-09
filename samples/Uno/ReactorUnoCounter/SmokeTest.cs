@@ -12,7 +12,8 @@ using Windows.Foundation.Metadata;
 /// <c>--smoke</c>: the CI runtime check. Waits for the counter to render, clicks "+"
 /// through its automation peer (no input injection, so it works on a headless
 /// runner), and checks the re-render shows the new count. That exercises startup,
-/// mount, a state update and the reconciler's patch on a live Uno window. Then it awaits
+/// mount, a state update and the reconciler's patch on a live Uno window, and that
+/// UseWindow() resolves the window through the rendering host. Then it awaits
 /// on the UI thread and checks the continuation comes back there, which needs the
 /// SynchronizationContext Uno installs (a stub one dropped it, uno-private#2250).
 /// Exits 0 on success and 1 on failure or timeout.
@@ -102,8 +103,11 @@ static class SmokeTest
                 // below reports it.
                 if (resumedOnUiThread.IsCompleted)
                 {
-                    if (resumedOnUiThread.Result)
-                        Finish(timer, 0, "PASS: clicking + re-rendered \"Count: 0\" as \"Count: 1\", and an await on the UI thread resumed there");
+                    var window = Find<TextBlock>(root!, t => t.Text.StartsWith("Window:"))?.Text;
+                    if (window is null or "Window: (none)")
+                        Finish(timer, 1, $"FAIL: UseWindow() found no owning window ({window ?? "<not found>"})");
+                    else if (resumedOnUiThread.Result)
+                        Finish(timer, 0, "PASS: clicking + re-rendered \"Count: 0\" as \"Count: 1\", UseWindow() found the owning window, and an await on the UI thread resumed there");
                     else
                         Finish(timer, 1, "FAIL: an await on the UI thread resumed on another thread (no SynchronizationContext?)");
                     return;
