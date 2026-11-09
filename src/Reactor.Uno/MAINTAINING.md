@@ -78,14 +78,16 @@ It needs the `SYNC_BOT_TOKEN` secret, a token that can push workflow files and o
 pull requests. With the default `GITHUB_TOKEN`, the push is rejected whenever Microsoft
 changed a workflow, and the pull request can't be opened while the repository doesn't
 allow GitHub Actions to create them. The header of `upstream-sync.yml` lists the
-permissions the token needs.
+permissions the token needs. Sync pull requests are authored by the token's owner, who
+can't approve them, so use a bot account or someone other than the workflow's `REVIEWER`.
 
 **To keep a Microsoft pull request out of `uno`**, add its number, from Microsoft's
 repository, to `EXCLUDED_UPSTREAM_PRS` at the top of `upstream-sync.yml`, with the
-reason next to it, in a pull request into `uno`. The next sync records it as merged
-without its changes and strikes it through in the list. If the sync pull request
-already contained it, the sync branch is rebuilt, and any conflict resolution pushed
-to it has to be done again.
+reason in a comment above it, in a pull request into `uno`. The next sync records it as
+merged without its changes and strikes it through in the list. If the sync pull request
+already contained it, or you remove a number before the sync lands, the sync branch is
+rebuilt, and any conflict resolution pushed to it has to be done again. A pull request
+that is still open takes effect once it merges; one already in `uno` has to be reverted.
 
 - It only works for squash or merge-commit pull requests, which is how Microsoft's
   `main` is merged today. For a rebase-merged one, only the last commit is skipped.
