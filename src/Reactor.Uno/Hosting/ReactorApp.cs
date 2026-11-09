@@ -133,6 +133,21 @@ public static partial class ReactorApp
     }
 
     /// <summary>
+    /// The open Reactor window whose content <paramref name="root"/> belongs to, or <c>null</c>.
+    /// Windows matches the hosting <c>AppWindow</c> id; on Uno each window has its own
+    /// <see cref="XamlRoot"/>, so the root itself identifies the window.
+    /// </summary>
+    internal static ReactorWindow? FindWindowForXamlRoot(XamlRoot? root)
+    {
+        if (root is null) return null;
+        foreach (var w in Windows)
+        {
+            if (!w.IsClosingOrDisposed && ReferenceEquals(w.NativeWindow.Content?.XamlRoot, root)) return w;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Opens a window hosting its own Reactor tree. Signature-compatible with the
     /// Windows framework's <c>ReactorApp.OpenWindow</c>.
     /// </summary>

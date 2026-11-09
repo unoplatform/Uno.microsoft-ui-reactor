@@ -215,6 +215,7 @@ src/Reactor.Uno/            # the port library (assembly `Reactor`, ns Microsoft
   ElementFactoryShim.cs     # lets Uno's ItemsRepeater take Reactor's ElementFactory<T>
   WinRTShims.cs             # CsWinRT types the shared source names but Uno lacks
   GlobalizationShims.cs     # Language.IsWellFormed, which Uno only stubs
+  StoragePickersShims.cs    # Windows App SDK pickers, over the WinRT pickers Uno has
   Hosting/
     ReactorApp.cs           # ReactorApp.Run / RunAsync + the static surface the core needs
     UnoBootstrap.cs         # UnoPlatformHostBuilder wiring + the code-only Application
@@ -293,8 +294,11 @@ window persistence, and the in-app devtools menu.
 When the shared source calls something Uno doesn't have, or only stubs, this project
 declares a stand-in under the same full name, which the compiler picks over the imported
 one: `WinRTShims.cs` for CsWinRT's attributes, `GlobalizationShims.cs` for
-`Windows.Globalization.Language.IsWellFormed` (Uno's throws `NotImplementedException`).
-Delete a stand-in once Uno implements the real member.
+`Windows.Globalization.Language.IsWellFormed` (Uno's throws `NotImplementedException`),
+`StoragePickersShims.cs` for Windows App SDK's `Microsoft.Windows.Storage.Pickers`, which
+Uno doesn't have at all. Delete a stand-in once Uno implements the real member: with
+`CS0436` silenced, the stand-in keeps winning without a word, so check them when bumping
+the Uno.Sdk pin.
 
 ### Name disambiguation (`GlobalUsings.cs`)
 
@@ -327,7 +331,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | Safe area (status/navigation bar, notch, cutouts) | ✅ Android · 🟡 iOS | On by default for all edges; `ReactorHost.SafeAreaEdges` picks which edges are padded (`None` turns it off). Uses Uno's `VisibleBoundsPadding` on the window root, so it pads the whole app, not individual elements, and ignores the soft keyboard. Verified on a Pixel 8 in portrait and landscape; iOS runs the same code but is unverified (see [Safe area](#safe-area)). |
 | Multi-window (`OpenWindow` / `UseOpenWindow`) | ✅ desktop | Real secondary windows on every desktop head (X11 / Win32 / macOS / FrameBuffer), each with its own `ReactorHost`, render loop and state. Android/iOS throw `InvalidOperationException` (Uno doesn't support secondary windows there) — `UseOpenWindow` catches it and degrades to a null handle. No OS windows in the browser (wasm). Demoed in `samples/Uno/ReactorUnoShowcase`. |
 | DPI (`UseDpi`) | ✅ | Per-window DPI from `XamlRoot.RasterizationScale`, and live changes (window dragged to a monitor with a different scale, or the display scale changed) re-render via `XamlRoot.Changed`. Correctly per-window, since each window has its own `XamlRoot`. |
-| File / folder pickers (`UseFilePickerAsync` / `UseFolderPickerAsync`) | ✅ desktop | Uno implements the WinRT pickers. The shared hook's `WindowNative.GetWindowHandle` + `InitializeWithWindow` association is exactly the initialization Uno's own docs prescribe for Uno.WinUI apps — it is not a Windows-only path. On **wasm** it depends on the browser: Uno uses the File System Access API where available (Chromium) and falls back to download/upload pickers; `FolderPicker` needs the File System Access API. Demoed in `samples/Uno/ReactorUnoShowcase`. |
+| File / folder pickers (`PickFileAsync`, `PickMultipleFilesAsync`, `PickFolderAsync`, `PickMultipleFoldersAsync`, `PickSaveFileAsync`) | ✅ desktop | The shared API is written against Windows App SDK's `Microsoft.Windows.Storage.Pickers`, which Uno doesn't implement; `StoragePickersShims.cs` stands in for it over the WinRT pickers Uno does implement. Options with no WinRT equivalent (`Title`, `SuggestedFolder`, `SuggestedStartFolder`, `InitialFileTypeIndex`, `ShowOverwritePrompt`) have no effect, an open picker's `FileTypeChoices` become one flat filter, and `PickMultipleFoldersAsync` picks a single folder. On **wasm** it depends on the browser: Uno uses the File System Access API where available (Chromium), where `Path` is only the item's name, and falls back to download/upload pickers; `FolderPicker` needs the File System Access API. Demoed in `samples/Uno/ReactorUnoShowcase`. |
 | Tray icons / shell (jump list, taskbar) | ❌ | Stub no-ops. |
 | Window persistence (placement save/restore) | ❌ | Not shared. |
 | System backdrop / Mica / DWM effects | ❌ | Not shared. |

@@ -122,12 +122,22 @@
     <SharedHostingFile Include="..\Reactor\Hosting\AppIconConvention.cs" />
     <!-- Used by this project's Hosting/WindowIcon.cs, the Uno stand-in for WindowIcon.cs. -->
     <SharedHostingFile Include="..\Reactor\Hosting\WindowIconKind.cs" />
+    <!-- The dispatcher-yield loop behind ReactorHost.WaitForIdleAsync. -->
+    <SharedHostingFile Include="..\Reactor\Hosting\RenderLoopIdle.cs" />
+    <!-- Marker attribute on the shared diagnostics API, read by REACTOR_THREAD_001. -->
+    <SharedHostingFile Include="..\Reactor\Hosting\UIThreadOnlyAttribute.cs" />
+    <!-- The devtools feature switch the shared reconciler and diagnostics check. -->
+    <SharedHostingFile Include="..\Reactor\Hosting\ReactorFeatures.cs" />
+    <!-- UI-thread guard for the shared diagnostics API; reads ReactorApp.UIDispatcher. -->
+    <SharedHostingFile Include="..\Reactor\Hosting\ThreadAffinity.cs" />
 
     <!-- Windows-only or replaced by this project's Uno hosting layer. Listed so
          the triage check can tell "deliberately excluded" from "not yet seen". -->
     <ExcludedHostingFile Include="..\Reactor\Hosting\BackdropApplier.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\DwmInterop.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\EmbedHostWatchdog.cs" />
+    <!-- user32 Get/SetWindowLong P/Invoke, used only by the excluded windowing files. -->
+    <ExcludedHostingFile Include="..\Reactor\Hosting\NativeWindowLong.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\OverlayHostWiring.cs" />
     <!-- Depends on the excluded ReactorHostControl. -->
     <ExcludedHostingFile Include="..\Reactor\Hosting\PageHelper.cs" />
@@ -136,13 +146,12 @@
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorAppContext.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorCoreXamlMetadataProvider.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorDisplay.cs" />
-    <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorFeatures.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorHost.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorHostControl.cs" />
+    <!-- A partial of the excluded ReactorHostControl. -->
+    <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorHostControl.Diagnostics.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReactorWindow.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\ReconcileHighlightOverlay.cs" />
-    <ExcludedHostingFile Include="..\Reactor\Hosting\ThreadAffinity.cs" />
-    <ExcludedHostingFile Include="..\Reactor\Hosting\UIThreadOnlyAttribute.cs" />
     <!-- Declares WindowState, which this project's Hosting/Windowing.cs owns. -->
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowEnums.cs" />
     <ExcludedHostingFile Include="..\Reactor\Hosting\WindowEvents.cs" />
