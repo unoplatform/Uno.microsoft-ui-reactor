@@ -10,7 +10,9 @@
     the one source for both: drops the `#:project` line, adds `Reactor` to `UnoFeatures`, and
     writes the global.json the readme puts next to it, with the repo root's Uno.Sdk pin (the
     `#:sdk Uno.Sdk` line names no version, in the sample and the readme alike; it fails if either
-    gets one). `#:property UnoReactorVersion=<Version>`, the readme's way to pick a
+    gets one; while Uno 7.0 is only on the Uno dev feed, the sample and the root global.json use
+    Uno.Sdk.Private, the readme keeps the public Uno.Sdk). `#:property UnoReactorVersion=<Version>`,
+    the readme's way to pick a
     version, points the feature at the package under test instead of the one the Uno.Sdk pins.
     Restores from -Feed (only that package; everything else from nuget.org) into a private
     NUGET_PACKAGES, so a package already in the global cache can't stand in for the one under
@@ -45,13 +47,13 @@ $readme = Get-Content (Join-Path $PSScriptRoot '../../../src/Reactor.Uno/Package
 $null = Get-OneMatch $readme '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Uno.Sdk line in PackageReadme.md'
 $source = Get-Content (Join-Path $PSScriptRoot '../../../samples/Uno/file-based/Counter.cs') -Raw
 $null = Get-OneMatch $source '(?m)^#:project .*\r?\n' '#:project line in Counter.cs'
-$null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk(?=\r?$)' 'versionless #:sdk Uno.Sdk line in Counter.cs'
+$null = Get-OneMatch $source '(?m)^#:sdk Uno\.Sdk(\.Private)?(?=\r?$)' 'versionless #:sdk Uno.Sdk line in Counter.cs'
 $featuresPattern = '(?m)^#:property UnoFeatures=([^\r\n]*)(?=\r?$)'
 $features = [regex]::Matches($source, $featuresPattern)
 if ($features.Count -gt 1) { throw "Expected at most one UnoFeatures line in Counter.cs, found $($features.Count)" }
 if ($features.Count -eq 1 -and $features[0].Groups[1].Value -match '(^|;)\s*Reactor\s*(;|$)') { throw 'Counter.cs already has the Reactor feature' }
 $source = [regex]::Replace($source, '(?m)^#:project .*\r?\n', '')
-$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk(?=\r?$)', "`$0`n#:property UnoReactorVersion=$Version")
+$source = [regex]::Replace($source, '(?m)^#:sdk Uno\.Sdk(\.Private)?(?=\r?$)', "`$0`n#:property UnoReactorVersion=$Version")
 if ($features.Count -eq 1) {
     $source = [regex]::Replace($source, '(?m)^(#:property UnoFeatures=[^\r\n]*)(?=\r?$)', '$1;Reactor')
 }

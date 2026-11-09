@@ -31,7 +31,8 @@ function Initialize-ConsumerFolder([string]$Feed, [string]$Version, [string]$Wor
         if ($found) { throw "-WorkDir must not sit under a folder with build settings; found $($found -join ', ')" }
     }
 
-    # The package comes from -Feed only: nuget.org has dev builds under the same ID.
+    # The package comes from -Feed only: nuget.org has dev builds under the same ID. Until Uno 7.0 is on
+    # nuget.org, Uno.Sdk.Private and the Uno 7.0 stables come from the Uno dev feed (uno-dev).
     Set-Content (Join-Path $WorkDir 'nuget.config') @"
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
@@ -39,12 +40,16 @@ function Initialize-ConsumerFolder([string]$Feed, [string]$Version, [string]$Wor
     <clear />
     <add key="local" value="$Feed" />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+    <add key="uno-dev" value="https://pkgs.dev.azure.com/uno-platform/1dd81cbd-cb35-41de-a570-b0df3571a196/_packaging/unoplatformdev/nuget/v3/index.json" />
   </packageSources>
   <packageSourceMapping>
     <packageSource key="local">
       <package pattern="$packageId" />
     </packageSource>
     <packageSource key="nuget.org">
+      <package pattern="*" />
+    </packageSource>
+    <packageSource key="uno-dev">
       <package pattern="*" />
     </packageSource>
   </packageSourceMapping>
@@ -65,12 +70,14 @@ function Get-OneMatch([string]$Text, [string]$Pattern, [string]$What) {
 }
 
 # Writes -WorkDir's global.json with the repo-root one's .NET SDK and Uno.Sdk pins, as the readmes
-# tell a consumer to: the samples' `Sdk="Uno.Sdk"` and `#:sdk Uno.Sdk` name no version.
+# tell a consumer to: the samples' `Sdk="Uno.Sdk"` and `#:sdk Uno.Sdk` name no version. While Uno 7.0
+# is only on the Uno dev feed, the root pins Uno.Sdk.Private (the samples name it), so that one is written.
 function Write-ConsumerGlobalJson([string]$WorkDir) {
     $root = Get-Content (Join-Path $PSScriptRoot '../../../global.json') -Raw | ConvertFrom-Json
-    if (-not $root.'msbuild-sdks'.'Uno.Sdk') { throw 'The repo-root global.json pins no Uno.Sdk' }
+    $unoSdk = @('Uno.Sdk.Private', 'Uno.Sdk') | Where-Object { $root.'msbuild-sdks'.$_ } | Select-Object -First 1
+    if (-not $unoSdk) { throw 'The repo-root global.json pins no Uno.Sdk or Uno.Sdk.Private' }
     $path = Join-Path $WorkDir 'global.json'
-    [ordered]@{ sdk = $root.sdk; 'msbuild-sdks' = [ordered]@{ 'Uno.Sdk' = $root.'msbuild-sdks'.'Uno.Sdk' } } |
+    [ordered]@{ sdk = $root.sdk; 'msbuild-sdks' = [ordered]@{ $unoSdk = $root.'msbuild-sdks'.$unoSdk } } |
         ConvertTo-Json -Depth 5 | Set-Content $path
     Write-Host "global.json: $(Get-Content $path -Raw)"
 }

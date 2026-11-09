@@ -1,4 +1,4 @@
-#:sdk Uno.Sdk
+#:sdk Uno.Sdk.Private
 #:project ../../../src/Reactor.Uno/Reactor.Uno.csproj
 #:property TargetFramework=net10.0-desktop
 #:property OutputType=Exe
