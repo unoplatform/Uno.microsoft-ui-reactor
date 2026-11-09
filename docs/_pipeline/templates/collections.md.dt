@@ -75,7 +75,9 @@ You get this for free as long as `keySelector` returns a value that is:
   having no key.
 - **Unique** within the list — duplicate keys trigger a bulk-replace
   bailout and a one-shot diagnostic in the dev log.
-- **Non-null** — null keys bail out the diff for the affected list.
+- **Non-null** — a null key is reported as a diagnostic and that item is
+  matched by its position, so its row state follows the index rather than
+  the item.
 
 ### `IReactorKeyed` — identity on the data
 
@@ -354,7 +356,7 @@ Rules for good keys:
 - **Keys must be unique** within their sibling list. Duplicates cause
   undefined reconciliation behavior.
 - **Keys should be strings.** `WithKey(string)` is the base modifier. For
-  types that implement [`IReactorKeyed`](#ireactorkeyed--identity-on-the-data)
+  types that implement [`IReactorKeyed`](#ireactorkeyed-identity-on-the-data)
   there is also `WithKey<TKey>(TKey item)`, which reads `item.Key` for you.
 
 ## Grouping

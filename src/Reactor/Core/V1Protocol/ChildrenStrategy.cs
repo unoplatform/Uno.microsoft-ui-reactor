@@ -122,44 +122,39 @@ public sealed record NamedSlot<TElement, TControl>(
     public Func<TControl, UIElement?>? GetCurrentChild { get; init; }
 }
 
-/// <summary>Items host for controls whose items collection is a flat
-/// <c>IList&lt;object&gt;</c> sink the descriptor populates directly —
-/// <c>ListBox</c>, <c>ComboBox.Items</c>, <c>RadioButtons.Items</c>, and
-/// any future control with a non-virtualizing items collection.
+/// <summary>Flat items host for native ItemCollection sinks and third-party
+/// controls that forward an IList&lt;object&gt; to an ItemsRepeater.
+/// Element children are reconciled in place: keys match across insertions and
+/// moves; unkeyed children retain positional identity. Raw items are compared
+/// with ItemEquals (object.Equals by default).
 ///
-/// <para><b>§14 Phase 3-final shape:</b>
-/// <list type="bullet">
-///   <item><see cref="GetItems"/> projects the element's items (typically
-///   <c>string[]</c> or <c>Element[]</c>) as an <c>IReadOnlyList&lt;object&gt;</c>.</item>
-///   <item><see cref="GetCollection"/> resolves the control's WinUI
-///   <c>ItemCollection</c> / <c>IList&lt;object&gt;</c> sink (e.g.
-///   <c>cb =&gt; cb.Items</c>).</item>
-///   <item><see cref="ItemEquals"/> optional per-item equality check used
-///   to short-circuit Mount/Update when the items collection hasn't
-///   structurally changed. Defaults to
-///   <see cref="object.Equals(object,object)"/>.</item>
-/// </list></para>
+/// <para>The live collection is incrementally inserted, removed and reordered,
+/// never reset on update. ObservableCollection moves emit one Move notification.
+/// Property-only and descendant-state updates do not mutate the collection.</para>
 ///
-/// <para><b>Mount semantics:</b> Clear the collection and Add each item
-/// once. Element items are mounted through the reconciler first; string
-/// items are passed through.</para>
-///
-/// <para><b>Update semantics:</b> If <see cref="ItemEquals"/> reports the
-/// collections are positionally equal, no-op. Otherwise rebuild positionally
-/// (clear + add). Spec-042 keyed-reconcile integration for typed templated
-/// lists lands separately with the
-/// <c>ListView&lt;T&gt;</c>/<c>GridView&lt;T&gt;</c> ports in Batch G2.</para></summary>
+/// <para>SetCollection opts interface-typed, writable Items properties into a
+/// stable observable backing collection when their initial list has no change
+/// notifications. Native read-only ItemCollection properties keep their sink.
+/// Removed and terminally unmounted Element children receive real teardown.</para></summary>
 public sealed record ItemsHost<TElement, TControl>(
     Func<TElement, IReadOnlyList<object>> GetItems,
     Func<TControl, IList<object>> GetCollection) : ChildrenStrategy<TElement, TControl>
     where TElement : Element
     where TControl : UIElement
 {
-    /// <summary>Optional per-item equality predicate. When provided, an
-    /// Update that compares equal element-by-element skips the rebuild.
-    /// Default = reference + value equality via
-    /// <see cref="object.Equals(object,object)"/>.</summary>
+    /// <summary>Optional equality predicate for raw (non-Element) items.
+    /// A positionally equal list retains its existing raw instances, matching
+    /// the legacy unchanged-list fast path. On a structural update, matched raw
+    /// value-equal instances are retained; Id-equal objects with changed payloads
+    /// are replaced. Element children follow panel skip rules: dirty paths,
+    /// changed context, theme sensitivity, resource refresh and force-rendering decline the skip.
+    /// Defaults to object.Equals.</summary>
     public Func<object?, object?, bool>? ItemEquals { get; init; }
+
+    /// <summary>Optional setter for an interface-typed Items property. On mount the
+    /// engine replaces a non-observable backing list with a stable observable
+    /// collection. Read-only native ItemCollection sinks are never replaced.</summary>
+    public Action<TControl, IList<object>>? SetCollection { get; init; }
 }
 
 /// <summary>Placeholder for future ItemsHost options (virtualization mode,
@@ -297,7 +292,7 @@ public sealed record TemplatedItems<TItem, TElement, TControl>(
         var typedEl = (TElement)element;
         var typedCtrl = (TControl)control;
         var items = GetItems(typedEl);
-        reconciler.BindKeyedItemsSource(typedCtrl, items, KeySelector, BuildItemView, requestRerender, isMount);
+        reconciler.BindKeyedItemsSource(typedCtrl, items, KeySelector, BuildItemView, requestRerender, isMount, element);
     }
 }
 
@@ -352,10 +347,22 @@ public sealed record TreeChildren<TElement, TControl>(
 {
     void IItemsBinderStrategy.Bind(FrameworkElement control, Element? oldElement, Element element, Reconciler reconciler, Action requestRerender, bool isMount)
     {
-        _ = oldElement; // positional rebuild reads only the new tree
         var tree = (TControl)control;
         var nodes = GetNodes((TElement)element);
         bool hasContentElements = HasAnyContentElement(nodes);
+
+        // A resource-refresh pass (Theme.NotifyResourcesChanged) updates every element, even an
+        // unchanged TreeView that is otherwise skipped. When the node tree has the same shape
+        // (the same array, or a fresh but equivalent one from the DSL), refresh mounted node
+        // content in place rather than rebuilding, which would reset expansion, selection and
+        // descendant state.
+        if (!isMount && reconciler.ResourceRefreshActive
+            && oldElement is TElement oldTyped && GetNodes(oldTyped) is var oldNodes && SameShape(oldNodes, nodes))
+        {
+            if (hasContentElements)
+                RefreshTreeContent(tree.RootNodes, oldNodes, nodes, reconciler, requestRerender);
+            return;
+        }
 
         if (isMount)
         {
@@ -412,6 +419,51 @@ public sealed record TreeChildren<TElement, TControl>(
         return node;
     }
 #pragma warning restore CS0618
+
+    // Same node structure: equal text, expansion and children, and content elements in the same
+    // places. Arrays are compared by shape, not reference, because the DSL builds fresh ones.
+    private static bool SameShape(IReadOnlyList<TreeViewNodeData> a, IReadOnlyList<TreeViewNodeData> b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            var x = a[i];
+            var y = b[i];
+#pragma warning disable CS0618
+            if (x.Content != y.Content || x.IsExpanded != y.IsExpanded
+                || (x.ContentElement is null) != (y.ContentElement is null)
+                || (x.Children is null) != (y.Children is null))
+                return false;
+#pragma warning restore CS0618
+            if (x.Children is not null && !SameShape(x.Children, y.Children!)) return false;
+        }
+        return true;
+    }
+
+    private static void RefreshTreeContent(
+        IList<WinUI.TreeViewNode> treeNodes, IReadOnlyList<TreeViewNodeData> oldData,
+        IReadOnlyList<TreeViewNodeData> newData, Reconciler reconciler, Action requestRerender)
+    {
+        for (int i = 0; i < treeNodes.Count && i < newData.Count; i++)
+        {
+            var node = treeNodes[i];
+            var o = oldData[i];
+            var d = newData[i];
+#pragma warning disable CS0618
+            if (d.ContentElement is { } content)
+            {
+                // Either side may be Empty, which mounts nothing: reconcile against whatever is
+                // there (possibly nothing) and take the result even when it is null.
+                var existing = node.Content as UIElement;
+                var next = reconciler.ReconcileV1Child(o.ContentElement, content, existing, requestRerender);
+                if (!ReferenceEquals(existing, next)) node.Content = next;
+            }
+#pragma warning restore CS0618
+            if (d.Children is not null && o.Children is not null)
+                RefreshTreeContent(node.Children, o.Children, d.Children, reconciler, requestRerender);
+        }
+    }
 
     private static void UnmountTreeContent(IList<WinUI.TreeViewNode> nodes, Reconciler reconciler)
     {

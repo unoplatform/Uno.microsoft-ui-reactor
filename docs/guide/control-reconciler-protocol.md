@@ -15,7 +15,7 @@ a debugger when an existing one mis-updates.
 # The Control Reconciler Protocol
 
 This page documents the data path between
-[`Reconciler.Reconcile`](reconciliation.md#reconcile--the-entry-point)
+[`Reconciler.Reconcile`](reconciliation.md#reconcile-the-entry-point)
 and the WinUI control it edits. The audience is anyone extending
 Reactor with a new native control, or anyone debugging why an
 existing element does not update the way it should. The companion
@@ -48,7 +48,7 @@ public UIElement Mount(Element element, Action requestRerender, Reconciler recon
     // Gated: callback-free leaves never dispatch into Reactor code, so we
     // skip the ReactorState allocation for them (§4.4 follow-up).
     if (control is FrameworkElement fe)
-        Reconciler.SetElementTagIfNeeded(fe, typedEl);
+        Reconciler.SetElementTagIfNeeded(fe, typedEl, OwnsTeardown(control));
 
     // Strategy dispatch — only when the handler declares a non-None Children strategy.
     var strategy = _handler.Children;
@@ -175,7 +175,7 @@ author's responsibility (and a debug-build assert).
 > instance, it survives pool rent — and that is almost certainly a bug.
 > Per-control state lives on the **control**, either as an attached
 > state DP or as the typed event payload box
-> ([`Reconciler.GetOrCreateControlEventPayload`](#echo-suppression-and-write-suppressed)),
+> ([`Reconciler.GetOrCreateControlEventPayload`](#echo-suppression-and-writesuppressed)),
 > both of which the pool reset contract clears. The handler instance is
 > a stateless interpreter.
 
@@ -305,7 +305,7 @@ public TControl Mount(MountContext ctx, TElement el)
     // only for elements that carry callbacks, a key, extensions, or reference modifiers.
     // Without this, OnUnmount would fire for some elements of a type and silently not for
     // others — the callback-free ones — which is not a contract an author can reason about.
-    if (_descriptor.OnUnmount is not null)
+    if (_descriptor.OnUnmount is not null || _hasPropUnmount)
         Reconciler.GetOrCreateReactorState(ctrl);
 
     // §14 Phase 3-final: when the descriptor declares an ItemsHost,
@@ -497,7 +497,7 @@ public sealed record Panel<TElement, TControl>(
 The strategy switch is the engine's seam between the handler protocol
 and the rest of the reconciler — `SingleContent` and `NamedSlots`
 route through
-[`Reconciler.ReconcileV1Child`](reconciliation.md#child-reconciler),
+[`Reconciler.ReconcileV1Child`](reconciliation.md#child-reconciler-keyed-vs-positional),
 which is the same diff path the rest of Reactor uses; `Panel`
 walks the new and old child lists in lockstep and preserves descendant
 component state across reorderings that do not change identity;
@@ -506,6 +506,64 @@ component state across reorderings that do not change identity;
 `KeyedListDiff` realization plumbing — and so on. Adding a new
 strategy is a Reactor-internals task; adding a new handler that
 *consumes* one of these strategies is what extension authors do.
+
+### Dynamic flat items
+
+`ItemsHost` reconciles Element items against their mounted controls: keyed
+items retain their identity across moves, while unkeyed elements match by
+source position. Element children follow the same skip rules as panel children:
+an unchanged child is skipped unless it is on a dirty path, consumes changed
+context, is theme-sensitive, participates in a resource refresh, or is force-rendered. Raw values use
+`ItemEquals` (or `object.Equals`). Insertions and removals update the sink incrementally rather
+than clearing and rebuilding it. Removed Element controls are unmounted
+while still parented, then detached; the host owns their terminal unmount.
+Raw-only lists retain the unchanged-list fast path. Element in-place matches
+avoid rebuilding the collection while retaining descendant update rules.
+`Theme.NotifyResourcesChanged()` also revisits retained Element items through
+their tracked controls, including components whose theme bindings are inside
+their render bodies. It does not rebuild the native collection or reset selection;
+raw-only item lists can retain their no-op fast paths.
+For raw values, a positionally equal list retains existing instances;
+structural updates retain value-equal instances but refresh Id-equal objects
+whose payload differs by `object.Equals`.
+
+For a managed control with a writable `IList<object> Items` property,
+provide the optional `SetCollection` callback:
+
+```csharp
+public sealed record FlatItemsElement(IReadOnlyList<object> Items) : Element;
+
+public sealed partial class FlatItemsControl : WinUI.Control
+{
+    public IList<object> Items { get; set; } = new List<object>();
+}
+
+public static class FlatItemsDescriptor
+{
+    public static readonly ControlDescriptor<FlatItemsElement, FlatItemsControl> Descriptor = new()
+    {
+        Children = new ItemsHost<FlatItemsElement, FlatItemsControl>(
+            GetItems: static e => e.Items,
+            GetCollection: static c => c.Items)
+        {
+            SetCollection = static (c, items) => c.Items = items,
+        },
+    };
+}
+```
+
+On mount, a non-notifying sink is replaced with an
+`ObservableCollection<object>`; an existing notifying sink is retained.
+The collection then remains stable, and observable moves use `Move` rather
+than `Reset`. This lets controls that forward `Items` to an `ItemsRepeater`
+(such as WCT `SettingsExpander`) realize dynamic children. Generated
+wrappers supply this callback for public, writable `IList<object>`
+properties. Read-only and concrete native `ItemCollection` properties
+keep their existing sink. The framework supplies the WinRT exposure for
+its observable list with `GeneratedWinRTExposedExternalType`, including indirect
+Native AOT collection boundaries. This does not root a toolkit's XAML metadata;
+code-only Native AOT apps may also need explicit provider registration (see
+[AOT support](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/aot-support.md)).
 
 ## Pool integration
 
@@ -667,7 +725,15 @@ hatches a hand-coded handler would otherwise need:
 | `.ReferenceList<TTarget>(get, apply)` | One-way list of reference props; resolves currently-mounted cells in declaration order and rebuilds the control list. |
 | `.OneWayBridged(get, set, shouldWrite)` | One-way prop whose `set` lambda needs access to the reconciler (used by the button-family flyout port). |
 | `.Imperative(mount, update)` | Property-level escape hatch — the lambdas receive `(control, element)` and `(control, oldEl, newEl)` so an entry can express a diff the standard builders cannot. |
-| `.ImperativeBridged(mount, update)` | Same shape with the `MountContext` / `UpdateContext` available — primary use is a secondary Element slot that needs structural reconcile via `ReconcileV1Child`. |
+| `.ImperativeBridged(mount, update)` | Same shape with `MountContext` / `UpdateContext` available, for bindings without owned child lifetime. |
+| `.ImperativeBridged(mount, update, unmount)` | Adds property-owned teardown with an `UnmountContext`; unmount a secondary Element slot while parented, then detach it. Runs before descriptor `OnUnmount` and roots per-control ReactorState. The two-callback overload remains available for bindings without owned child lifetime. |
+
+Property-owned `unmount` callbacks run before the descriptor's `OnUnmount`,
+independently of that callback. Unmount an owned slot with
+`ctx.Reconciler.UnmountChild(child)` while it is still parented, then detach it. Generated
+`[WrapElementSlot]` bindings do this automatically on terminal unmount;
+they leave constructor-owned defaults alone when no Element slot was
+declared. Do not also unmount the same slot in the descriptor callback.
 
 The entries iterate as a flat list, in declaration order. The
 descriptor's children strategy runs first when it is an items binder
@@ -704,7 +770,7 @@ on every Mount; precedence is documented in
 `ControlRegistry.Register<TElement, TControl>(Func<IElementHandler<TElement,TControl>>)`
 is the surface custom-control authors target. The recommended shape
 is the *factory holder* described in
-[Extending Reactor — Step 6](extending-reactor-controls.md#step-6--wrap-the-constructor-in-a-factory-holder-then-use-it):
+[Extending Reactor — Step 6](extending-reactor-controls.md#step-6-wrap-the-constructor-in-a-factory-holder-then-use-it):
 a `static class` whose static constructor calls
 `ControlRegistry.Register` with a `static () => new MyHandler()`
 lambda, paired with an `Of(...)` factory that is the sole

@@ -36,6 +36,7 @@ internal sealed class GridViewHandler : IElementHandler<GridViewElement, WinUI.G
         if (gv.ItemContainerStyle is not null) gridView.ItemContainerStyle = gv.ItemContainerStyle;
 
         Reconciler.SetElementTag(gridView, gv);
+        reconciler.CaptureContextForHost(gridView);
 
         gridView.ItemTemplate = Reconciler.SharedContentControlTemplate.Value;
 
@@ -58,6 +59,8 @@ internal sealed class GridViewHandler : IElementHandler<GridViewElement, WinUI.G
             if (items is not null && args.ItemIndex >= 0 && args.ItemIndex < items.Length
                 && args.ItemContainer.ContentTemplateRoot is ContentControl cc)
             {
+                using var realization = reconciler.EnterRealization((UIElement)sender!);
+                using var realizationTheme = reconciler.EnterRealizationTheme(args.ItemContainer);
                 var ctrl = reconciler.Mount(items[args.ItemIndex], requestRerender);
                 cc.Content = ctrl;
                 // Issue #951 — keep .AutomationName(...) on an item view working
@@ -165,6 +168,12 @@ internal sealed class GridViewHandler : IElementHandler<GridViewElement, WinUI.G
             if (gv.SelectedIndex >= 0)
                 ChangeEchoSuppressor.BeginSuppress(gv);
             gv.ItemsSource = Enumerable.Range(0, n.Items.Length).ToList();
+        }
+        else
+        {
+            // Theme.NotifyResourcesChanged: the kept items still need their theme values
+            // re-applied; reconcile the realized ones in place.
+            ctx.Reconciler.RefreshRealizedItemContainers(gv, n.Items, ctx.RequestRerender);
         }
 
         Reconciler.SetElementTag(gv, n);

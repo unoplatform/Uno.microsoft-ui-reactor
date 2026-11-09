@@ -805,6 +805,7 @@ public static partial class ReactorApp
             configure?.Invoke(window.Host);
             RegisterWindow(window);
             window.MountAndActivate(rootFactory, renderFunc, mountSite);
+            EmitWindowOpened(window);
         }
         catch (Exception)
         {
@@ -878,6 +879,24 @@ public static partial class ReactorApp
     }
 
     /// <summary>
+    /// The open <see cref="ReactorWindow"/> whose content tree <paramref name="root"/> belongs
+    /// to, matched by the hosting <c>AppWindow</c> id; <c>null</c> for content hosted by a plain
+    /// WinUI <c>Window</c>, a closing window, or an unloaded element. (issue #1396)
+    /// </summary>
+    internal static ReactorWindow? FindWindowForXamlRoot(XamlRoot? root)
+    {
+        if (root?.ContentIslandEnvironment is not { } environment) return null;
+        var id = environment.AppWindowId;
+        var snapshot = Windows;
+        for (int i = 0; i < snapshot.Count; i++)
+        {
+            var w = snapshot[i];
+            if (!w.IsClosingOrDisposed && w.AppWindow.Id == id) return w;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Exit the process. UI-thread only. With <paramref name="exitCode"/> set
     /// to its default (<c>0</c>), routes through
     /// <see cref="Application.Exit"/> so WinUI gets a clean unwind. With a
@@ -918,6 +937,23 @@ public static partial class ReactorApp
 
         try { WindowOpened?.Invoke(null, window); }
         catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] WindowOpened threw: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// <c>ReactorEventSource.WindowOpened</c> for a window whose open completed (its root
+    /// mounted, so the root component type is known). Records the reported type on the
+    /// window so <see cref="UnregisterWindow(ReactorWindow, bool)"/> reports the matching
+    /// <c>WindowClosed</c> — and only for a window whose open was reported. A window the
+    /// first render already closed is no longer registered and is not reported at all.
+    /// </summary>
+    private static void EmitWindowOpened(ReactorWindow window)
+    {
+        if (Array.IndexOf(Volatile.Read(ref _windows), window) < 0) return;
+        var windowType = window.Host.RootComponent is { } root
+            ? Core.Diagnostics.ComponentNames.For(root, element: null)
+            : nameof(ReactorWindow);
+        window.DiagnosticWindowType = windowType;
+        Core.Diagnostics.ReactorEventSource.Log.WindowOpened(windowType, window.Hwnd);
     }
 
     // Pick the first window eligible to be the application's PrimaryWindow,
@@ -967,6 +1003,13 @@ public static partial class ReactorApp
             PrimaryWindow = ElectPrimaryWindow(next);
 
         ReactorDisplay.UnregisterWindowMonitor(window);
+
+        // Only a window whose open was reported: a failed open never announced itself.
+        if (window.DiagnosticWindowType is { } windowType)
+        {
+            window.DiagnosticWindowType = null;
+            Core.Diagnostics.ReactorEventSource.Log.WindowClosed(windowType, window.Hwnd);
+        }
 
         try { WindowClosed?.Invoke(null, window); }
         catch (Exception ex) { global::System.Diagnostics.Debug.WriteLine($"[Reactor] WindowClosed threw: {ex.Message}"); }

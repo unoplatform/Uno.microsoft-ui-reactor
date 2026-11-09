@@ -138,6 +138,13 @@ Rule of thumb: start with a unit test. Drop to selftest only when you need a liv
 
 ### Mutation checks must prove the mutation ran
 
+For native control-identity checks, compare the control's attached `ReactorState`
+(`Reconciler.GetOrCreateReactorState`), not `RuntimeHelpers.GetHashCode` of a
+C#/WinRT wrapper. GC can collect an unrooted wrapper while its native control
+remains mounted; a later query then gets a different managed hash for the same
+control. The Stack/WrapGrid panel fixtures force GC between observations and
+assert both native identity and the reordered child sequence.
+
 Before interpreting a green mutation run, verify the source diff contains the intended edit at
 exactly the target site, the build and test processes both exited successfully, and the product
 assembly containing that source was rebuilt after the edit. Do not infer success by matching
@@ -494,6 +501,8 @@ This shape cost six separate investigations before it was diagnosed (issue #988)
 > **A third mode is deliberately absent from the table: an all-green run whose process still exits non-zero.** Every fixture reports `ok`, the trailer is present, nothing is skipped — and the Host then faults on the way out (`STATUS_STOWED_EXCEPTION` / `0xC000027B` is the usual one under WinUI). There is no `_abortedReason` for this and there should not be: nothing was interrupted and no fixture can be blamed, so a row keyed on an abort prefix would be unreachable. It surfaces as its own named failure instead — **`HostProcessExitsCleanly_NoTeardownCrash`** — which prints the exit code with its NTSTATUS interpretation. **If that test is the only red one, read the classified code and look at teardown: not at a fixture, and not at the budget.** Note this diagnosis does *not* reach the coverage leg: `tools/coverage/run-coverage.ps1` runs the Host directly under `dotnet-coverage` rather than through this wrapper, so the same fault there appears only as a non-zero exit from the collect step.
 
 > **A `0xC000027B` names its exception in the log.** When managed code throws into WinUI (an event handler, a timer tick) and nothing handles it, WinUI fail-fasts the Host with `STATUS_STOWED_EXCEPTION`, mid-run or on the way out. Just before that, the Host writes `# Unhandled exception in fixture <name>: <type> 0x<HRESULT>: <message>` followed by the managed stack as `#   ` comment lines. Read those first. They are in the Host's own stdout, so they reach every leg, the coverage lanes included. The fixture named is the one *in flight*; for a late callback such as a timer tick or a deferred event it need not be the fixture that armed it, and the stack says whose event it was. Example: an `AutoSuggestBox` dropped within 150 ms of a text change used to fail-fast one or two fixtures later, from its deferred `TextChanged` (see `AutoSuggestBoxCollectedStateTickFixture`).
+
+> **A native-origin `0xC000027B` has no stack to print.** When a WinUI component fails in its *own* native code (for example while a window is being destroyed), the exception printed is a bare `COMException` with no `at` lines (issue #1345: `COMException 0x80004005: Unspecified error` after a TitleBar window closed). The printer also writes the exception's `Exception.Data` entries (`RestrictedDescription` and similar) as `#   data` lines, but the originating native stack exists only in a crash dump. The packaged CI job therefore has WER write a dump of `Reactor.PackagedTests.Host.exe`. When the job fails, it runs `cdb` `!analyze -v` against that dump on the runner and prints the report in a collapsed `cdb analysis of <dump>` log group. The dump itself is never uploaded, so no process memory leaves the runner. Fixtures that close a secondary window where such a failure is expected wrap the close in `AsyncTeardownGuard.CloseAndSettleAsync`. It marks only a native-origin `E_FAIL` / teardown-reentry `COMException` as handled, and only while the close settles, and prints `# <site>: handled an async native teardown exception` so the event stays in the log. Use it for teardown you do not own; never use it around the behaviour a fixture asserts.
 
 Positional attribution means **unproven, not exonerated**. The absence of a `HANG_DETECTED` signal does not clear `X`: the watchdog can be disabled by env or by an attached debugger, and a pathologically slow or order-dependent fixture can pump the dispatcher often enough never to trip it. Start with suite duration; if duration looks normal, `X` becoming the suspect again is the one scenario that fits.
 
@@ -1054,10 +1063,13 @@ dotnet-coverage collect -s coverage.settings.xml \
 dotnet build src/Reactor                      -c Debug -p:Optimize=false -p:DebugType=portable --no-incremental
 dotnet build tests/Reactor.AppTests.Host      -c Debug -p:Optimize=false -p:DebugType=portable --no-incremental
 
-# Step 2: Instrument Reactor.dll statically
+# Step 2: Instrument the product DLLs statically
 #         (dynamic instrumentation skips referenced assemblies)
 dotnet-coverage instrument \
   "tests/Reactor.AppTests.Host/bin/$(RuntimeIdentifier)/Debug/net10.0-windows10.0.22621.0/Reactor.dll" \
+  -s coverage.settings.xml
+dotnet-coverage instrument \
+  "tests/Reactor.AppTests.Host/bin/$(RuntimeIdentifier)/Debug/net10.0-windows10.0.22621.0/Reactor.Advanced.dll" \
   -s coverage.settings.xml
 
 # Step 3: Collect
@@ -1066,8 +1078,12 @@ dotnet-coverage collect -s coverage.settings.xml \
   -- dotnet run --project tests/Reactor.AppTests.Host --no-build -- --self-test
 
 # --- Merge ---
-dotnet-coverage merge unit.cobertura.xml selftest.cobertura.xml \
-  --output merged.cobertura.xml --output-format cobertura
+# The exact union of covered lines. Not `dotnet-coverage merge`: it drops covered lines
+# from these reports (tests/coverage/ci/README.md explains why). It refuses reports that
+# do not list the same lines, such as a selftest report whose Reactor.Advanced.dll was
+# not instrumented in Step 2.
+pwsh tests/coverage/ci/Merge-Cobertura.ps1 -OutFile merged.cobertura.xml \
+  unit.cobertura.xml selftest.cobertura.xml
 ```
 
 Replace `$(RuntimeIdentifier)` with `ARM64` or `x64`, or omit the platform segment if you used the default platform from `Directory.Build.props`. The `coverage.settings.xml` file in the repo root controls which modules are included and excludes generated code (`obj/`, `*.g.cs`) and test-host scaffolding exercised only by the winapp/E2E runner.
@@ -1080,7 +1096,7 @@ red selftest fixture — the `CenterOnCurrent` pair in §2 above is the usual on
 both legs collected and no merged file. Merge them by hand:
 
 ```powershell
-dotnet-coverage merge coverage\unit.cobertura.xml coverage\selftest.cobertura.xml --output coverage\merged.cobertura.xml --output-format cobertura
+pwsh tests/coverage/ci/Merge-Cobertura.ps1 -OutFile coverage\merged.cobertura.xml coverage\unit.cobertura.xml coverage\selftest.cobertura.xml
 ```
 
 ### Running coverage in CI
