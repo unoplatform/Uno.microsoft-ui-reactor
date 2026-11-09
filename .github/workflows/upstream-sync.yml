@@ -51,8 +51,9 @@ on:
         default: false
 
 env:
-  # Comma-separated PR numbers of microsoft/microsoft-ui-reactor kept out of `uno`.
-  # Say why next to each, e.g. 1234 = breaks the Uno build until <what>.
+  # PR numbers of microsoft/microsoft-ui-reactor kept out of `uno`, separated by commas
+  # or spaces. The value holds numbers only, so say why in a comment above it:
+  #   1234: breaks the Uno build until <what>
   EXCLUDED_UPSTREAM_PRS: ''
 
 concurrency:
@@ -161,6 +162,7 @@ jobs:
           PMARKER="<!-- upstream-sync-bot:push-failed -->"
           # Trailer on every bot commit that contains conflict markers.
           CONFLICT_TRAILER="Upstream-Sync-Conflict: unresolved"
+          EXCLUDE_SUBJECT="chore(automation): Exclude"
 
           # Guarantee exactly ONE summary row, however we exit.
           STATUS=""
@@ -177,6 +179,61 @@ jobs:
 
           # gh pr lookup that never aborts the step (set -e safe).
           open_pr() { gh pr list --head "$SYNC_BRANCH" --base "$TARGET" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true; }
+
+          # Stop PR $1 from landing. Checks the outcome, not gh's exit codes: asking for a
+          # state the PR is already in can fail too.
+          quarantine_pr() {
+            gh pr ready "$1" --undo >/dev/null 2>&1 || true
+            gh pr merge "$1" --disable-auto >/dev/null 2>&1 || true
+            if [ "$(gh pr view "$1" --json isDraft,autoMergeRequest --jq '.isDraft and .autoMergeRequest == null' 2>/dev/null || true)" != "true" ]; then
+              echo "::warning::Could not quarantine PR #$1, so it may still merge. Convert it to a draft by hand."
+            fi
+          }
+
+          # Open the sync PR with body $1 and extra gh arguments; a refusal ends the run.
+          create_pr() {
+            local body="$1" why
+            shift
+            if gh pr create --base "$TARGET" --head "$SYNC_BRANCH" "$@" --title "$TITLE" --body "$body"; then
+              return 0
+            fi
+            if [ "$HAS_BOT_TOKEN" != "true" ]; then
+              why="the default GITHUB_TOKEN may not open PRs while 'Allow GitHub Actions to create and approve pull requests' is off — provision the SYNC_BOT_TOKEN secret (see this workflow's header)"
+            else
+              why="see the gh output above"
+            fi
+            echo "::error title=upstream-sync PR create failed::${why}"
+            note "❌ PR create failed — ${why}. The branch is pushed; [open the PR by hand](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${TARGET}...${SYNC_BRANCH}?expand=1) and later runs keep it updated."
+            exit 1
+          }
+
+          # Our labels (idempotent).
+          ensure_labels() {
+            gh label create 'upstream-sync' --color '1d76db' --description 'Automated upstream main→uno sync PR' --force >/dev/null 2>&1 || true
+            gh label create 'conflicts'     --color 'b60205' --description 'Automated merge hit conflicts'        --force >/dev/null 2>&1 || true
+          }
+
+          # Labels and reviewer for PR $1 (best-effort); $2 = 1 when it has conflicts.
+          label_pr() {
+            gh pr edit "$1" --add-label 'upstream-sync' >/dev/null 2>&1 || true
+            if [ "$2" = "1" ]; then
+              gh pr edit "$1" --add-label 'conflicts' >/dev/null 2>&1 || true
+            else
+              gh pr edit "$1" --remove-label 'conflicts' >/dev/null 2>&1 || true
+            fi
+            gh pr edit "$1" --add-reviewer "$REVIEWER" >/dev/null 2>&1 || true
+          }
+
+          # One-time sticky comment so a human is pinged exactly once.
+          ping_conflict() {
+            local existing
+            existing="$(gh pr view "$1" --json comments --jq "[.comments[] | select(.body | contains(\"$CMARKER\"))] | length" 2>/dev/null || echo 0)"
+            if [ "${existing:-0}" = "0" ]; then
+              gh pr comment "$1" --body "$(printf '%s\n' "$CMARKER" \
+                "${PING} — upstream \`${UPSTREAM_BRANCH}\` has merge conflicts into \`${TARGET}\`. This sync PR is a draft; see its description for the resolution steps.")" \
+                >/dev/null 2>&1 || true
+            fi
+          }
 
           # Start the required checks on the sync branch. Only needed with the default
           # token: its pushes and PRs do not trigger GitHub Actions.
@@ -204,28 +261,53 @@ jobs:
             exit 0
           fi
 
-          incoming="$(git rev-list --count "origin/${TARGET}..${SOURCE}")" || { note "❌ rev-list failed"; exit 1; }
-          range="$(git rev-parse --short "origin/${TARGET}")..$(git rev-parse --short "$SOURCE")" || { note "❌ rev-parse failed"; exit 1; }
-
           # Upstream PR numbers mean nothing on this fork, so a bare #N would link to the
           # wrong PR, and a plain link would add a backlink to Microsoft's PR on every
           # sync. redirect.github.com is GitHub's own way to link without one.
           pr_link() { printf '[#%s](https://redirect.github.com/%s/pull/%s)' "$1" "$UPSTREAM_REPO" "$1"; }
 
           # Excluded upstream PRs, resolved to their merge commits and kept while still
-          # pending (upstream, not yet in the target).
+          # pending (upstream, not yet in the target). gh's own error stays visible, so an
+          # auth or rate-limit failure doesn't read like a typo in the list.
           EXCLUDED_SHAS=()
           excluded_list=""
           excluded_prs="$EXCLUDED_UPSTREAM_PRS"
           for n in ${excluded_prs//,/ }; do
-            sha="$(GH_TOKEN="$UPSTREAM_READ_TOKEN" gh pr view "$n" --repo "$UPSTREAM_REPO" --json mergeCommit --jq '.mergeCommit.oid // empty' 2>/dev/null || true)"
-            if [ -z "$sha" ] || ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+            if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+              note "❌ \`$n\` in EXCLUDED_UPSTREAM_PRS is not a PR number"
+              exit 1
+            fi
+          done
+          for n in ${excluded_prs//,/ }; do
+            upstream_pr="$(GH_TOKEN="$UPSTREAM_READ_TOKEN" gh pr view "$n" --repo "$UPSTREAM_REPO" --json state,mergeCommit --jq '[.state, .mergeCommit.oid // ""] | @tsv')" \
+              || { note "❌ could not read excluded PR ${UPSTREAM_REPO}#$n — see the gh error in the logs"; exit 1; }
+            IFS=$'\t' read -r pr_state sha <<<"$upstream_pr"
+            case "$pr_state" in
+              MERGED) ;;
+              OPEN)
+                echo "::warning::Excluded PR ${UPSTREAM_REPO}#$n is still open; it takes effect once it merges."
+                continue
+                ;;
+              *)
+                note "❌ excluded PR ${UPSTREAM_REPO}#$n was closed without merging — remove it from EXCLUDED_UPSTREAM_PRS"
+                exit 1
+                ;;
+            esac
+            if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
               note "❌ excluded PR ${UPSTREAM_REPO}#$n has no reachable merge commit"
               exit 1
             fi
+            if git merge-base --is-ancestor "$sha" "origin/${TARGET}"; then
+              # Landed either as our exclusion record or, too late, with its changes.
+              if grep -qF " $sha" <<<"$(git log --merges --grep="^${EXCLUDE_SUBJECT} " --format=%P "origin/${TARGET}")"; then
+                excluded_list="${excluded_list} $(pr_link "$n")"
+              else
+                echo "::warning::Excluded PR ${UPSTREAM_REPO}#$n is already in ${TARGET}, so excluding it does nothing. To take it out, revert it."
+              fi
+              continue
+            fi
             excluded_list="${excluded_list} $(pr_link "$n")"
-            if git merge-base --is-ancestor "$sha" "$SOURCE" \
-               && ! git merge-base --is-ancestor "$sha" "origin/${TARGET}"; then
+            if git merge-base --is-ancestor "$sha" "$SOURCE"; then
               EXCLUDED_SHAS+=("$sha")
             fi
           done
@@ -235,6 +317,16 @@ jobs:
             ordered="$(git rev-list --topo-order --reverse "$SOURCE" --not "origin/${TARGET}")"
             mapfile -t EXCLUDED_SHAS < <(grep -Fxf <(printf '%s\n' "$pending") <<<"$ordered" || true)
           fi
+
+          # What a sync up to $1 really brings: excluded PRs' own commits don't count.
+          # Fills incoming and range.
+          describe_sync() {
+            local sha
+            incoming="$(grep -cFxvf <(for sha in "${EXCLUDED_SHAS[@]}"; do git rev-list "$sha" "^${sha}^1"; done) \
+                          <<<"$(git rev-list "$1" --not "origin/${TARGET}")" || true)"
+            range="$(git rev-parse --short "origin/${TARGET}")..$(git rev-parse --short "$1")"
+          }
+          describe_sync "$SOURCE"
 
           # PRs a sync up to $1 brings in, from upstream's first-parent history: squash
           # merges ("Title (#N)") and merge commits ("Merge pull request #N", title in the
@@ -271,7 +363,7 @@ jobs:
               # owner/repo@sha in Microsoft's title must not autolink from this fork.
               # sed, because bash 5.2 expands & in ${//}.
               t="$(sed 's/&/\&amp;/g; s/</\&lt;/g; s/@/@<!-- -->/g; s/#/#<!-- -->/g' <<<"$t")"
-              if [[ ",${excluded_prs// /}," == *",${n},"* ]]; then
+              if [[ " ${excluded_prs//,/ } " == *" ${n} "* ]]; then
                 line="- ~~$(pr_link "$n")~~ ${t} — _excluded_"
               else
                 line="- $(pr_link "$n") ${t}"
@@ -330,9 +422,33 @@ jobs:
               fi
             done
           fi
-          if [ -n "$TAINTED" ]; then
-            echo "::warning::${SYNC_BRANCH} already contains excluded commit(s)${TAINTED}; rebuilding from ${TARGET}."
+          # An exclusion removed while the sync branch still holds its record: as it stands
+          # that PR would land as dropped for good, so rebuild to bring it back.
+          UNEXCLUDED=""
+          if [ "$SYNC_EXISTS" = "1" ]; then
+            while read -r _ recorded; do
+              case " ${EXCLUDED_SHAS[*]} " in
+                *" $recorded "*) ;;
+                *) UNEXCLUDED="${UNEXCLUDED} $(git rev-parse --short "$recorded")" ;;
+              esac
+            done < <(git log --merges --grep="^${EXCLUDE_SUBJECT} " --format=%P "origin/${SYNC_BRANCH}" --not "origin/${TARGET}")
+          fi
+          if [ -n "$TAINTED$UNEXCLUDED" ]; then
+            if [ -n "$TAINTED" ]; then
+              echo "::warning::${SYNC_BRANCH} already contains excluded commit(s)${TAINTED}; rebuilding from ${TARGET}."
+            fi
+            if [ -n "$UNEXCLUDED" ]; then
+              echo "::warning::${SYNC_BRANCH} records exclusion(s) no longer listed${UNEXCLUDED}; rebuilding from ${TARGET}."
+            fi
             HAS_HUMAN_WORK=0
+            # A rejected push would leave the old head free to land, so hold it first.
+            # A clean rebuild makes the PR ready and re-arms auto-merge further down.
+            if [ "$DRY_RUN" != "true" ]; then
+              pr="$(open_pr)"
+              if [ -n "$pr" ]; then
+                quarantine_pr "$pr"
+              fi
+            fi
           fi
 
           # Conflict markers the bot committed on top of earlier human work are still
@@ -345,11 +461,24 @@ jobs:
             if [ -n "$last_conflict" ] \
                && [ -z "$(git log --format='%cn' "${last_conflict}..origin/${SYNC_BRANCH}" | grep -vxF "$BOT_NAME" || true)" ]; then
               pr="$(open_pr)"
-              if [ -n "$pr" ] && [ "$DRY_RUN" != "true" ]; then
-                gh pr ready "$pr" --undo >/dev/null 2>&1 || true
-                gh pr merge "$pr" --disable-auto >/dev/null 2>&1 || true
+              if [ "$DRY_RUN" != "true" ]; then
+                if [ -n "$pr" ]; then
+                  quarantine_pr "$pr"
+                else
+                  # An earlier run's PR create was refused: without a PR nothing points at
+                  # the conflict. Open it here, the normal path would re-merge on top.
+                  ensure_labels
+                  create_pr "$(printf '%s\n' \
+                    "> [!WARNING]" \
+                    "> **Merge conflicts** — \`${SYNC_BRANCH}\` has conflict markers committed. Resolve them there and push; the next run continues from your work." \
+                    "" \
+                    "_Maintained automatically; updates in place. Generated by [this run](${RUN_URL})._")" --draft
+                  pr="$(open_pr)"
+                  label_pr "$pr" 1
+                  ping_conflict "$pr"
+                fi
               fi
-              note "⚠️ waiting for conflict resolution on \`${SYNC_BRANCH}\` — PR #${pr:-?} kept as draft"
+              note "⚠️ waiting for conflict resolution on \`${SYNC_BRANCH}\`${pr:+ — PR #$pr kept as draft}"
               exit 0
             fi
           fi
@@ -359,7 +488,7 @@ jobs:
           #        or dismissing a pending approval). Just ensure PR + auto-merge state.
           #        Without an open PR there is nothing to protect: carry on and open one. ---
           pr="$(open_pr)"
-          if [ -n "$pr" ] && [ "$SYNC_EXISTS" = "1" ] && [ -z "$TAINTED" ] \
+          if [ -n "$pr" ] && [ "$SYNC_EXISTS" = "1" ] && [ -z "$TAINTED$UNEXCLUDED" ] \
              && git merge-base --is-ancestor "$SOURCE" "origin/${SYNC_BRANCH}" \
              && git merge-base --is-ancestor "origin/${TARGET}" "origin/${SYNC_BRANCH}"; then
             is_draft="$(gh pr view "$pr" --json isDraft --jq '.isDraft' 2>/dev/null || echo '')"
@@ -431,7 +560,7 @@ jobs:
               break
             fi
             git merge --no-ff -s ours \
-              -m "chore(automation): Exclude $(git rev-parse --short "$sha") from ${TARGET}" \
+              -m "${EXCLUDE_SUBJECT} $(git rev-parse --short "$sha") from ${TARGET}" \
               -m "Records '$(git log -1 --format=%s "$sha")' as merged without its changes." "$sha"
           done
 
@@ -442,8 +571,7 @@ jobs:
           # Quarantine BEFORE publishing a conflicted tree: demote an existing ready PR to
           # draft and disable any prior auto-merge, so a half-merge can never auto-land.
           if [ "$CONFLICT" = "1" ] && [ -n "$pr" ]; then
-            gh pr ready "$pr" --undo >/dev/null 2>&1 || true
-            gh pr merge "$pr" --disable-auto >/dev/null 2>&1 || true
+            quarantine_pr "$pr"
           fi
 
           # A rejected push must name its cause and mark the PR, or the run just goes red
@@ -483,9 +611,7 @@ jobs:
             gh pr edit "$pr" --remove-label 'sync-failed' >/dev/null 2>&1 || true
           fi
 
-          # Ensure our labels exist (idempotent).
-          gh label create 'upstream-sync' --color '1d76db' --description 'Automated upstream main→uno sync PR' --force >/dev/null 2>&1 || true
-          gh label create 'conflicts'     --color 'b60205' --description 'Automated merge hit conflicts'        --force >/dev/null 2>&1 || true
+          ensure_labels
 
           # --- 4. Body (printf-built; indented to stay inside the YAML block scalar). ---
           if [ "$CONFLICT" = "1" ]; then
@@ -521,7 +647,11 @@ jobs:
           if [ -n "$TAINTED" ]; then
             extra+=("- **Rebuilt:** the previous sync branch already contained newly excluded commit(s)${TAINTED}, so it was rebuilt from \`${TARGET}\`; any conflict resolution pushed to it must be redone.")
           fi
+          if [ -n "$UNEXCLUDED" ]; then
+            extra+=("- **Rebuilt:** the previous sync branch recorded exclusion(s) no longer listed${UNEXCLUDED}, so it was rebuilt from \`${TARGET}\`; any conflict resolution pushed to it must be redone.")
+          fi
           if [ -n "$PARTIAL" ]; then
+            describe_sync "$PARTIAL"
             extra+=("- **Partial:** stopped at \`${PARTIAL}\` (just before an excluded PR) because of conflicts; the next run continues after you push a resolution.")
             build_pr_list "$PARTIAL"
           else
@@ -551,16 +681,7 @@ jobs:
             if [ "$CONFLICT" = "1" ]; then
               draft=(--draft)
             fi
-            if ! gh pr create --base "$TARGET" --head "$SYNC_BRANCH" "${draft[@]}" --title "$TITLE" --body "$body"; then
-              if [ "$HAS_BOT_TOKEN" != "true" ]; then
-                why="the default GITHUB_TOKEN may not open PRs while 'Allow GitHub Actions to create and approve pull requests' is off — provision the SYNC_BOT_TOKEN secret (see this workflow's header)"
-              else
-                why="see the gh output above"
-              fi
-              echo "::error title=upstream-sync PR create failed::${why}"
-              note "❌ PR create failed — ${why}. The branch is pushed; [open the PR by hand](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${TARGET}...${SYNC_BRANCH}?expand=1) and later runs keep it updated."
-              exit 1
-            fi
+            create_pr "$body" "${draft[@]}"
             pr="$(open_pr)"
           else
             gh pr edit "$pr" --title "$TITLE" --body "$body" >/dev/null \
@@ -570,28 +691,13 @@ jobs:
             fi
           fi
 
-          # Labels (best-effort, idempotent).
-          gh pr edit "$pr" --add-label 'upstream-sync' >/dev/null 2>&1 || true
-          if [ "$CONFLICT" = "1" ]; then
-            gh pr edit "$pr" --add-label 'conflicts' >/dev/null 2>&1 || true
-          else
-            gh pr edit "$pr" --remove-label 'conflicts' >/dev/null 2>&1 || true
-          fi
-
-          # Reviewer request (best-effort).
-          gh pr edit "$pr" --add-reviewer "$REVIEWER" >/dev/null 2>&1 || true
+          label_pr "$pr" "$CONFLICT"
 
           # The pushed head has no checks yet: start them.
           start_checks
 
           if [ "$CONFLICT" = "1" ]; then
-            # One-time sticky comment so a human is pinged exactly once.
-            existing="$(gh pr view "$pr" --json comments --jq "[.comments[] | select(.body | contains(\"$CMARKER\"))] | length" 2>/dev/null || echo 0)"
-            if [ "${existing:-0}" = "0" ]; then
-              gh pr comment "$pr" --body "$(printf '%s\n' "$CMARKER" \
-                "${PING} — upstream \`${UPSTREAM_BRANCH}\` has merge conflicts into \`${TARGET}\`. This sync PR is a draft; see its description for the resolution steps.")" \
-                >/dev/null 2>&1 || true
-            fi
+            ping_conflict "$pr"
             note "⚠️ conflicts (${incoming} commits) — draft PR #${pr:-?}"
           else
             if [ -n "$pr" ]; then
