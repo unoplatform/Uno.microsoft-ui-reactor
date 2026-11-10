@@ -77,7 +77,7 @@ public class PerfDiffSkipPathTests
     {
         // FLAGSHIP-1 lets a stable .OnTapped element take the skip path. The
         // imperative .OnUnmount teardown is re-registered ONLY on the non-skip Update
-        // path (the reconciler's _onUnmountActions), and the latest registered
+        // path (the control's ReactorState.UnmountAction), and the latest registered
         // delegate is what fires at unmount — so a *changed* teardown closure must
         // decline the skip, or the stale (first-render) action is stranded and runs
         // in place of the current one. Pre-FLAGSHIP-1 this was masked because any
@@ -616,9 +616,20 @@ public class PerfDiffSkipPathTests
 
     [Theory]
     [InlineData("red", 255, 255, 0, 0)]
+    [InlineData("green", 255, 0, 128, 0)]
+    [InlineData("blue", 255, 0, 0, 255)]
+    [InlineData("white", 255, 255, 255, 255)]
+    [InlineData("black", 255, 0, 0, 0)]
+    [InlineData("gray", 255, 128, 128, 128)]
+    [InlineData("grey", 255, 128, 128, 128)]
+    [InlineData("lightgray", 255, 211, 211, 211)]
+    [InlineData("lightgrey", 255, 211, 211, 211)]
     [InlineData("transparent", 0, 0, 0, 0)]
     [InlineData("#FF8800", 255, 255, 0x88, 0)]
     [InlineData("#8000FF00", 0x80, 0, 255, 0)]
+    // Unrecognized input falls back to gray — the behaviour REACTOR_DYM_006 warns about.
+    [InlineData("orange", 255, 128, 128, 128)]
+    [InlineData("#888", 255, 128, 128, 128)]
     public void ParseColor_Resolves_Named_And_Hex(string input, int a, int r, int g, int b)
     {
         var color = BrushHelper.ParseColor(input);

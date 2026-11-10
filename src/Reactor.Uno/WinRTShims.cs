@@ -58,3 +58,16 @@ internal sealed class GeneratedBindableCustomPropertyAttribute : global::System.
 
     public global::System.Type[]? IndexerPropertyTypes { get; }
 }
+
+/// <summary>
+/// Uno-side stand-in for CsWinRT's assembly-level marker that makes it generate
+/// WinRT interop for a type only reached indirectly. Inert here: nothing on Uno
+/// crosses a WinRT ABI.
+/// </summary>
+[global::System.AttributeUsage(global::System.AttributeTargets.Assembly, AllowMultiple = true)]
+internal sealed class GeneratedWinRTExposedExternalTypeAttribute : global::System.Attribute
+{
+    public GeneratedWinRTExposedExternalTypeAttribute(global::System.Type type) => Type = type;
+
+    public global::System.Type Type { get; }
+}

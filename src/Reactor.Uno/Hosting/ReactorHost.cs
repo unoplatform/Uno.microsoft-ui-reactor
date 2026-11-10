@@ -26,7 +26,7 @@ namespace Microsoft.UI.Reactor.Hosting;
 /// render loop: on state change, re-renders the component and reconciles the
 /// virtual tree against the real control tree.
 /// </summary>
-public sealed class ReactorHost : IDisposable
+public sealed class ReactorHost : IDisposable, IThemeResourceListener, IContentOwner
 {
     private readonly Window _window;
     private readonly Reconciler _reconciler;
@@ -77,7 +77,11 @@ public sealed class ReactorHost : IDisposable
     public ReactorWindow? OwningWindow { get; internal set; }
 
     /// <summary>When set, Reactor renders into this Border instead of Window.Content.</summary>
-    public Microsoft.UI.Xaml.Controls.Border? ContentTarget { get; set; }
+    public Microsoft.UI.Xaml.Controls.Border? ContentTarget
+    {
+        get => _reconciler.ThemeAnchor as Microsoft.UI.Xaml.Controls.Border;
+        set => _reconciler.ThemeAnchor = value;
+    }
 
     /// <summary>
     /// The edges on which the app is kept clear of the status bar, navigation bar,
@@ -117,7 +121,10 @@ public sealed class ReactorHost : IDisposable
         _logger = logger ?? ReactorApp.AppLogger;
         _reconciler = new Reconciler(_logger);
         _window = window;
+        _reconciler.HostWindow = window;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        _reconciler.OwningDispatcher = _dispatcherQueue;
+        _reconciler.Owner = this;
 
         if (ReactorApp.UIDispatcher is null)
             ReactorApp.UIDispatcher = _dispatcherQueue;
@@ -128,6 +135,30 @@ public sealed class ReactorHost : IDisposable
             _window.Closed += (_, _) => Dispose();
         }
         catch { /* headless / windowless */ }
+
+        ThemeResourceListeners.Register(this);
+    }
+
+    ReactorWindow? IContentOwner.ReactorWindow => OwningWindow;
+
+    // The host closes with its window (Closed disposes it), so _disposed covers both.
+    ContentOwnerStatus IContentOwner.TryGetWindowId(out Microsoft.UI.WindowId id)
+    {
+        id = default;
+        if (_disposed || OwningWindow is { IsClosingOrDisposed: true })
+            return ContentOwnerStatus.Closed;
+        if (!_dispatcherQueue.HasThreadAccess)
+            return ContentOwnerStatus.WrongThread;
+        id = _window.AppWindow.Id;
+        return ContentOwnerStatus.Available;
+    }
+
+    // Theme.NotifyResourcesChanged: re-resolve every theme resource, past memoization.
+    void IThemeResourceListener.OnThemeResourcesChanged()
+    {
+        if (_disposed) return;
+        _reconciler.RequestResourceRefresh();
+        RequestRender();
     }
 
     // ── charting activation seam ──
@@ -332,7 +363,7 @@ public sealed class ReactorHost : IDisposable
             // root and then throw, and the failure belongs to the component that threw.
             if (_rootComponent is { } renderingRoot)
             {
-                renderingRoot.Context.BeginRender(rerender);
+                renderingRoot.Context.BeginRender(rerender, this);
                 try { newTree = renderingRoot.Render(); }
                 catch (HookOrderException ex) when (hotReloadRender)
                 {
@@ -353,7 +384,7 @@ public sealed class ReactorHost : IDisposable
             }
             else if (_rootRenderFunc is not null && _funcContext is not null)
             {
-                _funcContext.BeginRender(rerender);
+                _funcContext.BeginRender(rerender, this);
                 try { newTree = _rootRenderFunc(_funcContext); }
                 catch (HookOrderException ex) when (hotReloadRender)
                 {
@@ -580,37 +611,21 @@ public sealed class ReactorHost : IDisposable
 
     /// <summary>Awaits until the render loop is idle. Used by test harnesses.</summary>
     public Task WaitForIdleAsync(int maxYields = 50)
-    {
-        if (_disposed) return Task.CompletedTask;
-        if (_renderPending == 0 && !_isRendering && !_needsRerender)
-            return Task.CompletedTask;
+        => RenderLoopIdle.WaitAsync(
+            () => IsIdle,
+            _dispatcherQueue.TryEnqueue,
+            maxYields,
+            () => $"renderPending={_renderPending} isRendering={_isRendering} needsRerender={_needsRerender}");
 
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        int yields = 0;
-        void CheckIdle()
-        {
-            if (_disposed || (_renderPending == 0 && !_isRendering && !_needsRerender))
-            {
-                tcs.TrySetResult();
-                return;
-            }
-            if (++yields > maxYields)
-            {
-                tcs.TrySetResult();
-                return;
-            }
-            if (!_dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, CheckIdle))
-                tcs.TrySetResult();
-        }
-        if (!_dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, CheckIdle))
-            tcs.TrySetResult();
-        return tcs.Task;
-    }
+    internal bool IsDisposed => _disposed;
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        // Retire modal UI before user cleanup can throw or pump the dispatcher.
+        _reconciler.RetireContentDialogs();
+        ThemeResourceListeners.Unregister(this);
 
         _dispatcherQueue.TryEnqueue(() =>
         {

@@ -244,7 +244,7 @@ Markdown(string markdown, MarkdownOptions options)
 
 > **Package note.** `Markdown(...)` ships in the optional
 > `Microsoft.UI.Reactor.Advanced` package (spec 062 §7). Add a
-> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.16" />` and import
+> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.17" />` and import
 > its factories alongside the core ones:
 > `using static Microsoft.UI.Reactor.Advanced.Factories;`. Both overloads
 > return the base `Element`, and `MarkdownOptions` stays in
@@ -282,6 +282,157 @@ content), links become inline
 hyperlinks, code spans become monospace `TextBlock`. No WebView, no HTML
 round-trip — the output composes with every other modifier on this page
 (`.Padding`, `.Width`, `.TextWrapping`).
+
+### Selecting across an assembled message
+
+Selection across separate paragraphs, headings, list items, code blocks and
+table cells is opt-in. The default Markdown tree and behavior are unchanged.
+All helpers below ship in Advanced under `Microsoft.UI.Reactor.Markdown`.
+Use **one scope around the complete message**, even when the app renders it
+with several `Markdown(...)` calls:
+
+```csharp
+class MarkdownSelectionDemo : Component
+{
+    public override Element Render()
+    {
+        var (expanded, setExpanded) = UseState(false);
+        var (feedback, setFeedback) = UseState("");
+        var selection = new MarkdownTextSelectionOptions
+        {
+            OnCopyResult = (_, succeeded) => setFeedback(succeeded ? "Copied." : "Copy failed.")
+        };
+        var options = new MarkdownOptions { TextSelection = selection };
+        var message = VStack(
+            Markdown("# Answer\n\nFirst paragraph.", options),
+            MarkdownTextSelection.Surface("Details", TextBlock("Details")),
+            Expander("Show details", MarkdownTextSelection.Visibility(expanded,
+                Markdown("- First item\n- Second item", options)),
+                expanded, setExpanded),
+            Markdown("Final paragraph.", options));
+        return VStack(8,
+            MarkdownTextSelection.Scope(selection, message),
+            TextBlock(feedback)).Padding(24);
+    }
+}
+```
+
+Keep timeline rows, toolbars, and surrounding `ItemsView` chrome **outside**
+the text surfaces. Registration stops at the message scope; nested scopes are
+independent. `TextSelection` is only a parser opt-in: surfaces belong to the
+nearest scope, regardless of options identity, and only the scope's options
+supply `OnCopyResult`. Omitting the scope leaves no selection controller and
+emits a diagnostic warning. Key the scope by message identity with
+`.WithKey(message.Id)` when a virtualized row can switch to another message.
+As a fallback for unkeyed reuse, a text-changing update resets the selection
+and caret to the start when no nonblank surface text survives and no reused
+surface retains nonblank prefix/suffix text. Shared text can belong to a different
+message too, so this heuristic does not replace an explicit identity key.
+The parser emits semantic text and explicit separators, rather
+than guessing meaning from `Grid`/`StackPanel` shapes. `Surface(text, content,
+separatorAfter: "\n")` supplies exact **visible plain text**, never Markdown
+or HTML source. List markers have no separator before their content; table
+cells use tabs and rows use newlines. No final separator is copied.
+Surface wrappers own outer margins, sizing, alignment and Grid/Canvas/Flex
+placement; these are lifted off the inner element and applied exactly once.
+Inner padding and presentation styling remain on the content. Apps can normalize
+a returned block's `Margin` without leaving a second margin on an invisible child.
+
+For custom `CodeBlock` or `HtmlBlock` callbacks, explicitly wrap the visible
+body with `Surface` and leave toolbar siblings outside it. Paragraph and
+heading presentation callbacks still receive the default `RichTextBlockElement`,
+so existing typography/type checks work. The parser annotates the returned
+presentation element afterwards. If replacing the text itself, explicitly
+return a `Surface` with the replacement's visible text.
+For app-owned disclosures, render the summary once as a surface, and wrap
+the native Expander's body in `Visibility(expanded, body)`. This helper gates
+selection only: it does not change native visibility or own expansion state.
+Nested gates compose; collapsed descendants leave the selection document and
+return on expansion.
+
+The scope supports mouse drag (touch/pen remain available for native panning),
+Shift+arrow/PageUp/PageDown, Ctrl+A and
+Ctrl+C; keyboard navigation includes fully clipped blocks. Modern `ScrollView`
+(including the internal one in `ItemsView`) and legacy `ScrollViewer` provide
+clipping, bring-into-view and drag autoscroll. Offsets are UTF-16; horizontal
+caret movement follows grapheme boundaries. Streaming updates preserve
+selection endpoints against surviving surface identities where possible.
+The scope exposes UIA TextPattern with range-scoped embedded-control children.
+
+`OnCopyResult` is an optional `Action<string, bool>` **notification**, not a
+copy delegate. Reactor calls it after its single clipboard-write attempt.
+Recognized clipboard-access failures report `false`; unexpected exceptions
+propagate. Never call an app helper that writes the clipboard again from this
+callback. The app owns localized feedback and shows success only after `true`.
+
+`UnifiedRichText` alone is insufficient for cross-block selection because
+lists/code/tables are embedded controls. When `TextSelection` is supplied,
+semantic surfaces take precedence over `UnifiedRichText`.
+
+`MarkdownOptions.LinkBuilder` overrides rendering for links whose absolute URI
+passes the Markdown URI policy (`http`, `https`, or `mailto`). It receives a
+`MarkdownLink` with three properties:
+
+- `Text`: the label as plain text, with image alt text in place of images,
+  entities decoded, and line breaks as spaces. Use it for an accessible name or
+  tooltip.
+- `Label`: the label as one selectable `RichTextBlockElement` with its inline
+  formatting, default heading/table-header typography, and images preserved,
+  or `null` for an empty label.
+- `Uri`: the validated target.
+
+Don't use `Text` to tell the user where a link goes: the document author writes
+the label, and `[https://bank.example](https://other.example)` is a valid link.
+A confirmation prompt must show `Uri`, as the example below does.
+
+```csharp
+class ReviewedLinksDemo : Component
+{
+    public override Element Render()
+    {
+        var (pending, setPending) = UseState<Uri?>(null);
+
+        var options = new MarkdownOptions
+        {
+            LinkBuilder = link =>
+            {
+                Element content = link.Label is { } label
+                    ? label with { IsTextSelectionEnabled = false }
+                    : TextBlock(link.Uri.ToString());
+                return Button(content, () => setPending(link.Uri))
+                    .AutomationName(link.Text.Length > 0 ? link.Text : link.Uri.ToString())
+                    .ToolTip(link.Uri.ToString());
+            },
+        };
+
+        return VStack(8,
+            Markdown("Read [the **review** notes](https://example.com/review) first.", options),
+            TextBlock(pending is null ? "" : $"Open {pending}?")
+        ).Padding(24);
+    }
+}
+```
+
+Return a non-null `Element` for a confirmation action, preview, or other custom
+link UI; exceptions propagate and a null result is an error. The returned
+element is embedded through `InlineUIContainer`, retaining its own styling,
+lifecycle, and accessibility properties. Like other embedded controls, it has
+its own text-selection boundary. Leave the callback unset for ordinary native
+inline hyperlinks and continuous surrounding prose selection; a custom
+horizontal stack is not equivalent to a text hyperlink. The callback owns
+custom styling and interaction. Set an explicit accessible name on the
+returned control (`Text` is a good default) and verify its role, keyboard
+activation, and pointer behavior in your app. If the returned control is a
+button containing `Label`, set that label's `IsTextSelectionEnabled` to `false`
+rather than asking it to select text. This configuration is not a guarantee of
+physical input behavior for every custom control.
+
+With `LinkBuilder` set, links inside image alternative text are plain alt
+text, not separate actions. Nested parser autolinks remain part of the outer
+link's label: only the outer target is considered for rendering. If that
+target is rejected by the URI policy, the entire label stays plain text;
+a safe-looking URL in the label does not become a separate link. These
+nesting rules describe the callback path, not changes to the default renderer.
 
 The trade-off vs. [WebView2](#webview2) is fidelity: `Markdown` does not
 support arbitrary HTML, embedded `<script>`, or CSS. It supports paragraphs,

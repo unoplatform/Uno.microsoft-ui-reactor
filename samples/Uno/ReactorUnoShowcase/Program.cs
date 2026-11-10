@@ -48,16 +48,14 @@ class Showcase : Component
                 TextBlock($"Favourite: {Fruits[combo]}"),
                 ComboBox(Fruits, combo, setCombo),
 
-                // Uno implements the WinRT pickers, including the
-                // WindowNative.GetWindowHandle + InitializeWithWindow association
-                // the shared hook performs — the very pattern Uno's own docs
-                // prescribe. Nothing Windows-only here.
+                // The shared PickFileAsync, backed on Uno by the WinRT pickers Uno
+                // implements. On WebAssembly the path may be just the file name.
                 Heading("File picker"),
                 TextBlock($"Picked: {picked}"),
                 Button("Pick a file…", async () =>
                 {
-                    var file = await UseFilePickerAsync(new FilePickerOptions());
-                    setPicked(file?.Name ?? "(cancelled)");
+                    var file = await PickFileAsync(new FilePickerOptions());
+                    setPicked(file is null ? "(cancelled)" : System.IO.Path.GetFileName(file.Path));
                 })
 #if REACTOR_DESKTOP
                 ,

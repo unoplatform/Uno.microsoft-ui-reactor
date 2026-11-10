@@ -1,5 +1,6 @@
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Markdown;
 using static Microsoft.UI.Reactor.Factories;
 using static Microsoft.UI.Reactor.Advanced.Factories;
 using Microsoft.UI.Xaml;
@@ -101,6 +102,60 @@ class MarkdownDemo : Component
     }
 }
 // </snippet:markdown>
+
+// <snippet:markdown-selection>
+class MarkdownSelectionDemo : Component
+{
+    public override Element Render()
+    {
+        var (expanded, setExpanded) = UseState(false);
+        var (feedback, setFeedback) = UseState("");
+        var selection = new MarkdownTextSelectionOptions
+        {
+            OnCopyResult = (_, succeeded) => setFeedback(succeeded ? "Copied." : "Copy failed.")
+        };
+        var options = new MarkdownOptions { TextSelection = selection };
+        var message = VStack(
+            Markdown("# Answer\n\nFirst paragraph.", options),
+            MarkdownTextSelection.Surface("Details", TextBlock("Details")),
+            Expander("Show details", MarkdownTextSelection.Visibility(expanded,
+                Markdown("- First item\n- Second item", options)),
+                expanded, setExpanded),
+            Markdown("Final paragraph.", options));
+        return VStack(8,
+            MarkdownTextSelection.Scope(selection, message),
+            TextBlock(feedback)).Padding(24);
+    }
+}
+// </snippet:markdown-selection>
+
+// <snippet:markdown-link-builder>
+class ReviewedLinksDemo : Component
+{
+    public override Element Render()
+    {
+        var (pending, setPending) = UseState<Uri?>(null);
+
+        var options = new MarkdownOptions
+        {
+            LinkBuilder = link =>
+            {
+                Element content = link.Label is { } label
+                    ? label with { IsTextSelectionEnabled = false }
+                    : TextBlock(link.Uri.ToString());
+                return Button(content, () => setPending(link.Uri))
+                    .AutomationName(link.Text.Length > 0 ? link.Text : link.Uri.ToString())
+                    .ToolTip(link.Uri.ToString());
+            },
+        };
+
+        return VStack(8,
+            Markdown("Read [the **review** notes](https://example.com/review) first.", options),
+            TextBlock(pending is null ? "" : $"Open {pending}?")
+        ).Padding(24);
+    }
+}
+// </snippet:markdown-link-builder>
 
 // <snippet:image>
 class ImageDemo : Component
@@ -221,6 +276,7 @@ class TextAndMediaApp : Component
             Component<RichTextDemo>(),
             Component<RichEditDemo>(),
             Component<MarkdownDemo>(),
+            Component<MarkdownSelectionDemo>(),
             Component<ImageDemo>(),
             Component<MediaPlayerDemo>(),
             Component<WebViewDemo>(),

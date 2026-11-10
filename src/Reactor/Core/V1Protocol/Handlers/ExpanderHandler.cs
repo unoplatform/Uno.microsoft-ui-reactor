@@ -73,7 +73,7 @@ internal sealed class ExpanderHandler : IDecoratorElementHandler<ExpanderElement
         // Reconcile content child
         if (exp.Content is UIElement existingContent && reconciler.CanUpdate(oldEl.Content, newEl.Content))
         {
-            var replacement = reconciler.UpdateChild(oldEl.Content, newEl.Content, existingContent, requestRerender);
+            var replacement = reconciler.UpdateHostedChild(oldEl.Content, newEl.Content, existingContent, requestRerender);
             if (replacement is not null && !ReferenceEquals(exp.Content, replacement))
                 exp.Content = replacement;
         }
@@ -95,5 +95,14 @@ internal sealed class ExpanderHandler : IDecoratorElementHandler<ExpanderElement
     }
 
     public V1UnmountDisposition Unmount(UnmountContext ctx, ExpanderElement? element, UIElement control)
-        => V1UnmountDisposition.ContinueDefaultTraversal;
+    {
+        var expander = (WinUI.Expander)control;
+        // The default ContentControl traversal owns Content, but not Header.
+        if (element?.HeaderTemplate is not null)
+        {
+            if (expander.Header is UIElement header) ctx.Reconciler.UnmountChild(header);
+            expander.Header = null;
+        }
+        return V1UnmountDisposition.ContinueDefaultTraversal;
+    }
 }

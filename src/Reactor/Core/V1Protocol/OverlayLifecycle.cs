@@ -53,7 +53,53 @@ internal static class OverlayLifecycle
     // is poolable, so the placeholder can be recycled into an unrelated element
     // — ContentDialogHandler.Unmount takes the entry back out during the V1
     // unmount dispatch, which runs before the control reaches the pool.
-    private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, WinUI.ContentDialog> s_liveDialogs = new();
+    private sealed record LiveContentDialog(WinUI.ContentDialog Dialog, ContentDialogThemeBinding Theme, ContentDialogLifetime Lifetime);
+
+    private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, LiveContentDialog> s_liveDialogs = new();
+    private static readonly global::System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, ContentDialogLifetime> s_pendingDialogs = new();
+
+    // Terminal disposal does not unmount the ordinary tree. Keep pending and live
+    // dialogs reachable from their reconciler, including dialogs already closing.
+    internal sealed class ContentDialogLifetime(Reconciler owner, FrameworkElement anchor)
+    {
+        internal RoutedEventHandler? LoadedHandler;
+        internal WinUI.ContentDialog? Dialog;
+        internal ContentDialogThemeBinding? Theme;
+        internal bool Retired;
+
+        internal void DetachLoaded()
+        {
+            if (LoadedHandler is not { } handler) return;
+            anchor.Loaded -= handler;
+            LoadedHandler = null;
+            if (s_pendingDialogs.TryGetValue(anchor, out var pending) && ReferenceEquals(pending, this))
+                s_pendingDialogs.Remove(anchor);
+        }
+
+        internal void StopTracking()
+        {
+            DetachLoaded();
+            Theme?.Dispose();
+            owner.ContentDialogLifetimes?.Remove(this);
+        }
+
+        internal void Retire()
+        {
+            Retired = true;
+            StopTracking();
+            if (s_liveDialogs.TryGetValue(anchor, out var live) && ReferenceEquals(live.Lifetime, this))
+            {
+                s_liveDialogs.Remove(anchor);
+                Reconciler.ClearElementTag(anchor);
+            }
+            if (Dialog is not { } dialog) return;
+            Reconciler.ClearElementTag(dialog);
+            // Component cleanups still belong to DisposeCollectingPropagation's
+            // batch. Do not unmount here and run them re-entrantly or twice.
+            dialog.Content = null;
+            dialog.Hide();
+        }
+    }
 
     public static UIElement MountContentDialog(Reconciler reconciler, ContentDialogElement cdEl, Action requestRerender)
     {
@@ -77,35 +123,56 @@ internal static class OverlayLifecycle
 
         // No live dialog: never opened, still deferred waiting on XamlRoot, or
         // already dismissed. A rising edge above is the only way back.
-        if (!s_liveDialogs.TryGetValue(fe, out var dialog)) return null;
+        if (!s_liveDialogs.TryGetValue(fe, out var live)) return null;
+        if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs) return null;
+        var dialog = live.Dialog;
 
-        if (!n.IsOpen && o.IsOpen)
+        if (!n.IsOpen)
         {
             // Falling edge — honor the declared IsOpen. Hide() drives ShowAsync's
             // continuation, which unmounts the content and dispatches OnClosed,
             // exactly as a user dismissal does (and matching Popup, whose
             // IsOpen = false likewise raises Closed).
-            dialog.Hide();
+            // Stop following as soon as closing starts, not only when ShowAsync
+            // completes after the close transition. Intervening renders must not
+            // re-sync a dialog that is already on its way out.
+            live.Theme.Dispose();
+            if (o.IsOpen) dialog.Hide();
             return null;
         }
 
         SyncContentDialogProps(dialog, n);
+        TagDialogForDiagnostics(dialog, n);
+        live.Theme.Apply(n);
 
         // Reconcile the side-mounted content in place so transient state inside
         // the dialog (focus, scroll, caret) survives the owner's re-renders.
         if (dialog.Content is UIElement existing && reconciler.CanUpdate(o.Content, n.Content))
         {
-            var replacement = reconciler.Update(o.Content, n.Content, existing, requestRerender);
+            var replacement = reconciler.UpdateHostedChild(o.Content, n.Content, existing, requestRerender);
+            if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs)
+            {
+                if (replacement is not null) reconciler.UnmountChild(replacement);
+                return null;
+            }
             if (replacement is not null && !ReferenceEquals(dialog.Content, replacement))
                 dialog.Content = replacement;
         }
         else
         {
             if (dialog.Content is UIElement stale) reconciler.UnmountChild(stale);
-            dialog.Content = reconciler.Mount(n.Content, requestRerender) as UIElement;
+            if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs) return null;
+            var mounted = reconciler.Mount(n.Content, requestRerender) as UIElement;
+            if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs)
+            {
+                if (mounted is not null) reconciler.UnmountChild(mounted);
+                return null;
+            }
+            dialog.Content = mounted;
         }
 
-        Reconciler.ApplySetters(n.Setters, dialog);
+        if (live.Lifetime.Retired || reconciler.IsDisposingContentDialogs) return null;
+        live.Theme.ApplySetters(n);
         return null;
     }
 
@@ -135,13 +202,26 @@ internal static class OverlayLifecycle
     /// </summary>
     internal static WinUI.ContentDialog? TryTakeLiveContentDialog(FrameworkElement anchor)
     {
-        if (!s_liveDialogs.TryGetValue(anchor, out var dialog)) return null;
+        if (s_pendingDialogs.TryGetValue(anchor, out var pending))
+            pending.Retire();
+        if (!s_liveDialogs.TryGetValue(anchor, out var live)) return null;
         s_liveDialogs.Remove(anchor);
-        return dialog;
+        live.Theme.Dispose();
+        live.Lifetime.Retired = true;
+        return live.Dialog;
     }
+
+    /// <summary>The dialog currently showing for <paramref name="anchor"/>, without taking it.</summary>
+    internal static WinUI.ContentDialog? PeekLiveContentDialog(FrameworkElement anchor)
+        => s_liveDialogs.TryGetValue(anchor, out var live) ? live.Dialog : null;
 
     private static void ShowContentDialog(Reconciler reconciler, ContentDialogElement cdEl, FrameworkElement anchor, Action requestRerender)
     {
+        if (reconciler.IsDisposingContentDialogs) return;
+        if (s_pendingDialogs.TryGetValue(anchor, out var pending))
+            pending.Retire();
+        var lifetime = new ContentDialogLifetime(reconciler, anchor);
+        (reconciler.ContentDialogLifetimes ??= []).Add(lifetime);
         // Source XamlRoot from the placeholder so the dialog routes to the
         // window that owns the anchor. If the anchor isn't attached yet
         // (mount-time IsOpen=true) defer via Loaded — falling back to
@@ -151,7 +231,7 @@ internal static class OverlayLifecycle
         {
             void OnLoaded(object sender, RoutedEventArgs _)
             {
-                anchor.Loaded -= OnLoaded;
+                lifetime.DetachLoaded();
                 // Re-read the current element from the anchor's Tag in case
                 // IsOpen was toggled back to false (or the element was
                 // replaced) before Loaded fired.
@@ -170,16 +250,22 @@ internal static class OverlayLifecycle
                 // sees the winner even within one dispatcher tick.
                 var tag = Reconciler.GetElementTag(anchor);
                 var alreadyShowing = s_liveDialogs.TryGetValue(anchor, out var live) && live is not null;
-                if (!ShouldStartDeferredDialog(tag, alreadyShowing))
+                if (lifetime.Retired || reconciler.IsDisposingContentDialogs
+                    || !ShouldStartDeferredDialog(tag, alreadyShowing))
+                {
+                    lifetime.StopTracking();
                     return;
+                }
                 var deferredRoot = anchor.XamlRoot
                     ?? ReactorApp.PrimaryWindow?.NativeWindow.Content?.XamlRoot;
-                ShowContentDialogCore(reconciler, (ContentDialogElement)tag!, anchor, deferredRoot, requestRerender);
+                ShowContentDialogCore(reconciler, (ContentDialogElement)tag!, anchor, deferredRoot, requestRerender, lifetime);
             }
+            lifetime.LoadedHandler = OnLoaded;
+            s_pendingDialogs.Add(anchor, lifetime);
             anchor.Loaded += OnLoaded;
             return;
         }
-        ShowContentDialogCore(reconciler, cdEl, anchor, anchor.XamlRoot, requestRerender);
+        ShowContentDialogCore(reconciler, cdEl, anchor, anchor.XamlRoot, requestRerender, lifetime);
     }
 
     /// <summary>
@@ -203,7 +289,46 @@ internal static class OverlayLifecycle
     internal static bool ShouldStartDeferredDialog(Element? tag, bool alreadyShowing)
         => !alreadyShowing && tag is ContentDialogElement { IsOpen: true };
 
-    private static async void ShowContentDialogCore(Reconciler reconciler, ContentDialogElement cdEl, FrameworkElement anchor, XamlRoot? xamlRoot, Action requestRerender)
+    /// <summary>
+    /// Points the live <see cref="WinUI.ContentDialog"/> back at its element so an inspector
+    /// that picks the dialog's chrome (title, primary/secondary/close buttons) can attribute
+    /// it to the <c>ContentDialog(...)</c> call site: it walks up to the dialog and reads
+    /// <see cref="Reconciler.GetElementTag(UIElement)"/> /
+    /// <see cref="Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap.GetSource"/>.
+    ///
+    /// <para>The placeholder already carries the tag, but it is collapsed and lives in the
+    /// owner's tree, while the dialog is shown in its own popup root, so no ancestor walk
+    /// from a dialog button can reach it. Tagging the dialog is the only bridge.</para>
+    ///
+    /// <para>Nothing in Reactor reads this tag back (callbacks resolve through the
+    /// placeholder), so it is only written when there is something to attribute — see
+    /// <see cref="ShouldTagDialog"/> — and production pays nothing.</para>
+    /// </summary>
+    private static void TagDialogForDiagnostics(WinUI.ContentDialog dialog, ContentDialogElement element)
+        // Passing null when tagging is off retires a tag an earlier render wrote (the flag
+        // was flipped off while the dialog stayed open), and is a no-op on an untagged dialog.
+        => Reconciler.SetElementTag(dialog, ShouldTagDialog(element) ? element : null);
+
+    /// <summary>
+    /// Tag when the element carries a call site (it was stamped, or hand-stamped) or when
+    /// source mapping is on (so an inspector can still read the element record).
+    /// </summary>
+    internal static bool ShouldTagDialog(ContentDialogElement element)
+        => element.CallSite is not null || Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap.Enabled;
+
+    /// <summary>
+    /// True when <paramref name="control"/>'s tag only attributes it to its element: a side-mounted
+    /// <c>ContentDialog</c> tagged for source attribution. The element's modifiers were applied to
+    /// the collapsed placeholder, not to the dialog, so diagnostics must not read them as the
+    /// dialog's own. The one exception is <c>RequestedTheme</c>, which
+    /// <see cref="ContentDialogThemeBinding"/> also forwards to the dialog; the dialog's theme may
+    /// instead come from its owner or a <c>.Set</c> callback, so it is deliberately not reported
+    /// as an applied property either.
+    /// </summary>
+    internal static bool IsAttributionOnlyTag(UIElement control, Element tag)
+        => control is WinUI.ContentDialog && tag is ContentDialogElement;
+
+    private static async void ShowContentDialogCore(Reconciler reconciler, ContentDialogElement cdEl, FrameworkElement anchor, XamlRoot? xamlRoot, Action requestRerender, ContentDialogLifetime lifetime)
     {
         var dialog = new WinUI.ContentDialog
         {
@@ -214,33 +339,67 @@ internal static class OverlayLifecycle
         };
         if (cdEl.SecondaryButtonText is not null) dialog.SecondaryButtonText = cdEl.SecondaryButtonText;
         if (cdEl.CloseButtonText is not null) dialog.CloseButtonText = cdEl.CloseButtonText;
-        dialog.Content = reconciler.Mount(cdEl.Content, requestRerender);
         if (xamlRoot is not null) dialog.XamlRoot = xamlRoot;
+        TagDialogForDiagnostics(dialog, cdEl);
         // Resolve callbacks through the anchor's live Tag the way Flyout/Popup do,
         // rather than capturing the mount-time element: the dialog re-renders
         // while open so those closures go stale, and clearing the tag is how
         // unmount teardown suppresses an OnClosed it did not mean to raise.
-        dialog.Opened += (_, _) => (Reconciler.GetElementTag(anchor) as ContentDialogElement)?.OnOpened?.Invoke();
-        // ApplySetters last so caller .Set(...) wins (including overriding XamlRoot).
-        Reconciler.ApplySetters(cdEl.Setters, dialog);
+        void OnOpened(object? _, object? __)
+        {
+            // Hide before Opened need not cancel a queued native ShowAsync.
+            if (lifetime.Retired || reconciler.IsDisposingContentDialogs)
+                dialog.Hide();
+            else
+                (Reconciler.GetElementTag(anchor) as ContentDialogElement)?.OnOpened?.Invoke();
+        }
+        var theme = new ContentDialogThemeBinding(anchor, dialog);
+        lifetime.Dialog = dialog;
+        lifetime.Theme = theme;
+        var liveDialog = new LiveContentDialog(dialog, theme, lifetime);
         // Publish before showing so the very next render can reach the dialog.
-        s_liveDialogs.AddOrUpdate(anchor, dialog);
+        s_liveDialogs.AddOrUpdate(anchor, liveDialog);
+        // The visible dialog describes the element too, not only its collapsed placeholder: an
+        // out-of-process inspector sees the dialog. A deferred (Loaded) open finds the
+        // placeholder already published; a mount-time open is covered by the reconciler, which
+        // mirrors the placeholder's value onto the live dialog when it publishes it.
+        if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported
+            && Diagnostics.ReactorSourcePublisher.IsEnabled
+            && anchor.GetValue(Diagnostics.ReactorDiagnostics.SourceProperty) is string published)
+            dialog.SetValue(Diagnostics.ReactorDiagnostics.SourceProperty, published);
         // True when this call still owns the placeholder's tracking entry at
         // close time. False once unmount teardown has taken it, or once a
         // re-open has installed a newer dialog over it.
         bool ownsClose;
         WinUI.ContentDialogResult winUiResult;
+        dialog.Opened += OnOpened;
         try
         {
+            theme.Apply(cdEl);
+            dialog.Content = reconciler.MountDialogContent(
+                anchor, cdEl.Content, requestRerender, dialog.RequestedTheme, lifetime);
+            // ApplySetters last so caller .Set(...) wins (including theme/XamlRoot).
+            theme.ApplySetters(cdEl);
+            if (lifetime.Retired)
+            {
+                dialog.Content = null;
+                return;
+            }
             winUiResult = await dialog.ShowAsync();
         }
         finally
         {
+            dialog.Opened -= OnOpened;
             // In a finally so it also runs when ShowAsync throws — WinUI rejects
             // a second dialog on the same XamlRoot — which would otherwise strand
             // the tracking entry and leak the content subtree mounted above.
-            ownsClose = s_liveDialogs.TryGetValue(anchor, out var tracked) && ReferenceEquals(tracked, dialog);
+            lifetime.StopTracking();
+            ownsClose = s_liveDialogs.TryGetValue(anchor, out var tracked) && ReferenceEquals(tracked, liveDialog);
             if (ownsClose) s_liveDialogs.Remove(anchor);
+            // A caller can keep the dialog through .Set(...); a closed dialog must not keep
+            // resolving to (and keeping alive) its element, nor keep the published
+            // ReactorSource that Native AOT's GetSource falls back to. No-op when untagged.
+            Reconciler.ClearElementTag(dialog);
             // Unmount the content: it was mounted at open time and nothing else
             // tears it down, so every open/close cycle would otherwise leak its
             // component cleanups. Already null when teardown took ownership.
@@ -288,10 +447,10 @@ internal static class OverlayLifecycle
                 flyout.Closed += (_, _) => (Reconciler.GetElementTag(targetFe) as FlyoutElement)?.OnClosed?.Invoke();
             // SetFlyoutOnControl wires .Flyout on Button/SplitButton targets so
             // clicking opens the flyout natively; non-button targets fall back
-            // to SetAttachedFlyout metadata (opened only via ShowAttachedFlyout).
+            // to SetAttachedFlyout metadata (opened only by an explicit show).
             reconciler.SetFlyoutOnControl(targetFe, flyout);
             Reconciler.ApplySetters(flyEl.Setters, flyout);
-            if (flyEl.IsOpen) WinPrim.FlyoutBase.ShowAttachedFlyout(targetFe);
+            if (flyEl.IsOpen) ShowFlyoutWhenReady(targetFe, flyout, IsFlyoutStillRequestingOpen);
         }
         return target;
     }
@@ -320,7 +479,7 @@ internal static class OverlayLifecycle
             {
                 if (flyout.Content is UIElement existingContent && reconciler.CanUpdate(o.FlyoutContent, n.FlyoutContent))
                 {
-                    var contentRepl = reconciler.Update(o.FlyoutContent, n.FlyoutContent, existingContent, requestRerender);
+                    var contentRepl = reconciler.UpdateHostedChild(o.FlyoutContent, n.FlyoutContent, existingContent, requestRerender);
                     if (contentRepl is not null) flyout.Content = contentRepl;
                 }
                 else
@@ -364,7 +523,13 @@ internal static class OverlayLifecycle
                 reconciler.SetFlyoutOnControl(targetFe, newFlyout);
                 Reconciler.ApplySetters(n.Setters, newFlyout);
             }
-            if (n.IsOpen && !o.IsOpen) WinPrim.FlyoutBase.ShowAttachedFlyout(targetFe);
+            // Open through the installed flyout itself (ShowAt), never ShowAttachedFlyout:
+            // a Button/SplitButton target holds its flyout in the control's own Flyout
+            // slot, and ShowAttachedFlyout on such a target throws ArgumentException
+            // ("ShowAttached was called on an element without an attached FlyoutBase"),
+            // which tore the whole tree down into a render-error screen.
+            if (n.IsOpen && !o.IsOpen && Reconciler.GetFlyoutOnControl(targetFe) is { } installed)
+                ShowFlyoutWhenReady(targetFe, installed, IsFlyoutStillRequestingOpen);
         }
         return updated == targetControl ? null : updated;
     }
@@ -377,7 +542,7 @@ internal static class OverlayLifecycle
         foreach (var menuItem in mbEl.Items)
         {
             var mbi = new WinUI.MenuBarItem { Title = menuItem.Title };
-            foreach (var flyoutItem in menuItem.Items) mbi.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(flyoutItem));
+            foreach (var flyoutItem in menuItem.Items) mbi.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(flyoutItem, reconciler));
             menuBar.Items.Add(mbi);
         }
         Reconciler.ApplySetters(mbEl.Setters, menuBar);
@@ -396,7 +561,7 @@ internal static class OverlayLifecycle
             var mbi = (WinUI.MenuBarItem)mb.Items[i];
             if (o.Items[i].Title != n.Items[i].Title)
                 mbi.Title = n.Items[i].Title;
-            MenuCommandFactory.UpdateMenuFlyoutItems(mbi.Items, o.Items[i].Items, n.Items[i].Items);
+            MenuCommandFactory.UpdateMenuFlyoutItems(mbi.Items, o.Items[i].Items, n.Items[i].Items, reconciler);
         }
 
         // Remove excess top-level menus
@@ -408,7 +573,7 @@ internal static class OverlayLifecycle
         {
             var mbi = new WinUI.MenuBarItem { Title = n.Items[i].Title };
             foreach (var item in n.Items[i].Items)
-                mbi.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
+                mbi.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item, reconciler));
             mb.Items.Add(mbi);
         }
 
@@ -427,9 +592,9 @@ internal static class OverlayLifecycle
         };
         if (cmdEl.Content is not null) commandBar.Content = reconciler.Mount(cmdEl.Content, requestRerender);
         if (cmdEl.PrimaryCommands is not null)
-            foreach (var cmd in cmdEl.PrimaryCommands) commandBar.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+            foreach (var cmd in cmdEl.PrimaryCommands) commandBar.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
         if (cmdEl.SecondaryCommands is not null)
-            foreach (var cmd in cmdEl.SecondaryCommands) commandBar.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+            foreach (var cmd in cmdEl.SecondaryCommands) commandBar.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
         Reconciler.SetElementTag(commandBar, cmdEl);
         Reconciler.ApplySetters(cmdEl.Setters, commandBar);
         return commandBar;
@@ -441,8 +606,8 @@ internal static class OverlayLifecycle
         cb.IsOpen = n.IsOpen;
 
         // Update primary commands in-place
-        MenuCommandFactory.UpdateAppBarItems(cb.PrimaryCommands, n.PrimaryCommands);
-        MenuCommandFactory.UpdateAppBarItems(cb.SecondaryCommands, n.SecondaryCommands);
+        MenuCommandFactory.UpdateAppBarItems(cb.PrimaryCommands, n.PrimaryCommands, reconciler);
+        MenuCommandFactory.UpdateAppBarItems(cb.SecondaryCommands, n.SecondaryCommands, reconciler);
 
         reconciler.ReconcileChild(o.Content, n.Content,
             () => cb.Content as UIElement,
@@ -463,7 +628,7 @@ internal static class OverlayLifecycle
         if (target is FrameworkElement targetFe)
         {
             var menuFlyout = new WinUI.MenuFlyout();
-            foreach (var item in mfEl.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
+            foreach (var item in mfEl.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item, reconciler));
             Reconciler.SetElementTag(targetFe, mfEl);
             // Use SetFlyoutOnControl so clicking a Button/SplitButton target opens
             // the flyout via .Flyout; non-button targets fall back to attached-flyout
@@ -496,14 +661,14 @@ internal static class OverlayLifecycle
             var existingFlyout = Reconciler.GetFlyoutOnControl(targetFe);
             if (existingFlyout is WinUI.MenuFlyout mf)
             {
-                MenuCommandFactory.UpdateMenuFlyoutItems(mf.Items, o.Items, n.Items);
+                MenuCommandFactory.UpdateMenuFlyoutItems(mf.Items, o.Items, n.Items, reconciler);
                 Reconciler.ApplySetters(n.Setters, mf);
             }
             else
             {
                 // Flyout type changed or was missing — create fresh.
                 var menuFlyout = new WinUI.MenuFlyout();
-                foreach (var item in n.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item));
+                foreach (var item in n.Items) menuFlyout.Items.Add(MenuCommandFactory.CreateMenuFlyoutItem(item, reconciler));
                 reconciler.SetFlyoutOnControl(targetFe, menuFlyout);
                 Reconciler.ApplySetters(n.Setters, menuFlyout);
             }
@@ -553,7 +718,7 @@ internal static class OverlayLifecycle
 
         if (popup.Child is UIElement existing && reconciler.CanUpdate(o.Child, n.Child))
         {
-            var replacement = reconciler.Update(o.Child, n.Child, existing, requestRerender);
+            var replacement = reconciler.UpdateHostedChild(o.Child, n.Child, existing, requestRerender);
             if (replacement is not null && !ReferenceEquals(popup.Child, replacement))
                 popup.Child = replacement;
         }
@@ -577,9 +742,9 @@ internal static class OverlayLifecycle
             var flyout = new WinUI.CommandBarFlyout();
             FlyoutPlacement.Apply(flyout, cbf.Placement);
             if (cbf.PrimaryCommands is not null)
-                foreach (var cmd in cbf.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+                foreach (var cmd in cbf.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
             if (cbf.SecondaryCommands is not null)
-                foreach (var cmd in cbf.SecondaryCommands) flyout.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+                foreach (var cmd in cbf.SecondaryCommands) flyout.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
             Reconciler.SetElementTag(targetFe, cbf);
             // SetFlyoutOnControl (not SetAttachedFlyout) so clicking a Button/SplitButton
             // target opens the flyout natively, matching Flyout and MenuFlyout. WinUI's
@@ -588,7 +753,7 @@ internal static class OverlayLifecycle
             // ShowAttachedFlyout call, which nothing here makes.
             reconciler.SetFlyoutOnControl(targetFe, flyout);
             Reconciler.ApplySetters(cbf.Setters, flyout);
-            if (cbf.IsOpen) ShowFlyoutWhenReady(targetFe, flyout);
+            if (cbf.IsOpen) ShowFlyoutWhenReady(targetFe, flyout, IsStillRequestingOpen);
         }
         return target;
     }
@@ -626,9 +791,9 @@ internal static class OverlayLifecycle
                 var flyout = new WinUI.CommandBarFlyout();
                 FlyoutPlacement.Apply(flyout, n.Placement);
                 if (n.PrimaryCommands is not null)
-                    foreach (var cmd in n.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+                    foreach (var cmd in n.PrimaryCommands) flyout.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
                 if (n.SecondaryCommands is not null)
-                    foreach (var cmd in n.SecondaryCommands) flyout.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+                    foreach (var cmd in n.SecondaryCommands) flyout.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
                 reconciler.SetFlyoutOnControl(targetFe, flyout);
                 Reconciler.ApplySetters(n.Setters, flyout);
                 existing = flyout;
@@ -641,13 +806,13 @@ internal static class OverlayLifecycle
                     existing.PrimaryCommands.Clear();
                     existing.SecondaryCommands.Clear();
                     if (n.PrimaryCommands is not null)
-                        foreach (var cmd in n.PrimaryCommands) existing.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+                        foreach (var cmd in n.PrimaryCommands) existing.PrimaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
                     if (n.SecondaryCommands is not null)
-                        foreach (var cmd in n.SecondaryCommands) existing.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd));
+                        foreach (var cmd in n.SecondaryCommands) existing.SecondaryCommands.Add(MenuCommandFactory.CreateAppBarItem(cmd, reconciler));
                 }
                 Reconciler.ApplySetters(n.Setters, existing);
             }
-            if (n.IsOpen && !o.IsOpen) ShowFlyoutWhenReady(targetFe, existing);
+            if (n.IsOpen && !o.IsOpen) ShowFlyoutWhenReady(targetFe, existing, IsStillRequestingOpen);
         }
         return updated == targetControl ? null : updated;
     }
@@ -661,15 +826,22 @@ internal static class OverlayLifecycle
     internal static bool IsStillRequestingOpen(Element? tag) => tag is CommandBarFlyoutElement { IsOpen: true };
 
     /// <summary>
+    /// <see cref="IsStillRequestingOpen"/> for <see cref="FlyoutElement"/>: whether the
+    /// target's current element is still a <see cref="FlyoutElement"/> asking to be open.
+    /// </summary>
+    internal static bool IsFlyoutStillRequestingOpen(Element? tag) => tag is FlyoutElement { IsOpen: true };
+
+    /// <summary>
     /// Opens <paramref name="flyout"/> against <paramref name="target"/>, deferring to the
     /// target's first <c>Loaded</c> when it isn't in a live tree yet (at mount time it has no
     /// XamlRoot and <c>ShowAt</c> would throw).
     ///
     /// Deliberately not <c>FlyoutBase.ShowAttachedFlyout</c>: that reads the AttachedFlyout
     /// property, and a Button/SplitButton target holds its flyout in the control's own
-    /// <c>Flyout</c> slot, so the attached lookup would find nothing and silently no-op.
+    /// <c>Flyout</c> slot, so the attached lookup finds nothing — and WinUI throws
+    /// <see cref="ArgumentException"/> rather than no-op'ing.
     /// </summary>
-    private static void ShowFlyoutWhenReady(FrameworkElement target, WinPrim.FlyoutBase flyout)
+    private static void ShowFlyoutWhenReady(FrameworkElement target, WinPrim.FlyoutBase flyout, Func<Element?, bool> stillRequestingOpen)
     {
         if (target.IsLoaded)
         {
@@ -684,7 +856,7 @@ internal static class OverlayLifecycle
             // target AND the target's current element still asks to be open — otherwise a
             // re-render that cleared IsOpen (or a recycled control) would pop a stale flyout.
             if (ReferenceEquals(Reconciler.GetFlyoutOnControl(target), flyout)
-                && IsStillRequestingOpen(Reconciler.GetElementTag(target)))
+                && stillRequestingOpen(Reconciler.GetElementTag(target)))
             {
                 flyout.ShowAt(target);
             }

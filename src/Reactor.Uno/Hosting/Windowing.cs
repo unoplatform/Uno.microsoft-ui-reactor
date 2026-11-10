@@ -189,6 +189,7 @@ public sealed class ReactorWindow
     {
         NativeWindow = nativeWindow;
         Spec = spec;
+        nativeWindow.Closed += (_, _) => _closed = true;
 
         // Bridge the WinUI window's activation events to the simple EventHandler
         // shape the shared hooks expect.
@@ -217,6 +218,11 @@ public sealed class ReactorWindow
 
     /// <summary>The Reactor host rendering into this window.</summary>
     public Microsoft.UI.Reactor.Hosting.ReactorHost? Host { get; internal set; }
+
+    private volatile bool _closed;
+
+    // True once teardown has started: the native window closed, or its host was disposed.
+    internal bool IsClosingOrDisposed => _closed || Host is { IsDisposed: true };
 
     // Read by the shared TitleBarIconDefault. On Windows they report whether the
     // window's own icon load succeeded; the Uno window never applies an icon, so

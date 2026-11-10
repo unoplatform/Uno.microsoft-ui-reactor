@@ -28,7 +28,7 @@ The doc covers what's shipped through **Phase 0 (instrumentation)**, **Phase 1 (
 
 ## 1. The problem in one paragraph
 
-When an AI agent writes a Microsoft.UI.Reactor (Reactor) app, it usually compiles, finds a build error, reads the error, edits the file, and tries again. Each of those round-trips costs time, tokens, and money. The biggest single bucket of that cost on agent-eval runs is the **build/fix loop**: roughly 150K tokens and 2–4 turns per run, mostly spent pasting MSBuild output into context and inferring what to do next. `mur check` is a thin wrapper around `dotnet build` that compresses each diagnostic into one short line. The "did-you-mean" engine in this PR goes further — it tries to answer *the agent's next question* in the same line, so the agent can fix the bug without an extra inspection turn.
+When an AI agent writes a Microsoft.UI.Reactor (Reactor) app, it usually compiles, finds a build error, reads the error, edits the file, and tries again. Each of those round-trips costs time, tokens, and money. The biggest single bucket of that cost on agent-eval runs is the **build/fix loop**: roughly 150K tokens and 2–4 turns per run, mostly spent pasting MSBuild output into context and inferring what to do next. `mur check` is a thin wrapper around `dotnet build` that formats each diagnostic as a single line. The "did-you-mean" engine in this PR goes further — it tries to answer *the agent's next question* in the same line, so the agent can fix the bug without an extra inspection turn.
 
 **Concrete example.** Before:
 
@@ -69,10 +69,11 @@ The combination — experimental API + structurally weak / cross-framework-confu
 `mur check` emits one line per diagnostic. The shape is:
 
 ```
-<file>:<line>:<col>  <SEV>  <CODE>  <short message>[  → <hint>][  // <evidence>]
+<file>:<line>:<col>  <SEV>  <CODE>  <message>[  → <hint>][  // <evidence>]
 ```
 
 - `<SEV>` is `E`, `W`, or `I` (error, warning, info).
+- On stdout, error messages are emitted in full; warning and info messages are truncated to 100 characters.
 - `<hint>` is **either** a static skill-file pointer (when the code is one of the 12 known `REACTOR_*` analyzer IDs) **or** a `→ try: …` suggestion from the new Roslyn-backed engine.
 - `<evidence>` is a short justification so the agent (and the human reader) can sanity-check the hint. Examples: `[factory has Action onClick parameter]`, `[member of TextBlockElement, similarity 0.91]`.
 
@@ -109,8 +110,8 @@ mur check <path>
    │             fuzzy-match against the real Reactor API surface.
    │
    │   Tier 3 — induced + vocabulary rules   (SHIPPED in part, Phase 3)
-   │             Small symbol-bound rewriters. Six rules live today
-   │             (four Class-A induced + two Class-B vocabulary).
+   │             Small symbol-bound rewriters. Seven rules live today
+   │             (4 Class-A + 2 Class-B + 1 analyzer mirror).
    │             Rules can cover diagnostic codes Tier-2 doesn't
    │             (e.g. CS1955). Rules WIN over Tier-2 when both match.
    │
@@ -168,7 +169,7 @@ Each rule is a small file under `src/Reactor.Cli/Check/Rules/`, registered into 
 
 Each rule passes a six-bar **Validation Gate** before merge (frequency, cross-agent reproducibility, positive fixtures, negative counter-examples, independent reviewer signoff, kill-switch). The gate exists because a bad rule is worse than no rule — it contaminates every downstream agent session. Class-B (vocabulary-translation) rules waive bar #1 (frequency) — their justification is the documented prior-framework citation rather than a corpus cluster. The audit at `docs/specs/tasks/038-tuning-reports/2026-05-11-cross-agent-audit.md` is where bar #2 (cross-agent) gets formally cleared per cluster.
 
-**Six rules shipped to date** (four Class-A induced + two Class-B vocabulary):
+**Seven rules shipped to date** (four Class-A induced + two Class-B vocabulary + one analyzer mirror):
 
 | Rule | Class | Code(s) | Receiver | What it suggests | Cross-agent events |
 |---|---|---|---|---|---|
@@ -178,6 +179,7 @@ Each rule passes a six-bar **Validation Gate** before merge (frequency, cross-ag
 | `GridSizePxRenameRule` | A | CS0117 | `GridSize` | `GridSize.Px(...)` for `Pixel`/`Pixels`/`Fixed` legacy names | 9 |
 | `TextBlockStyleHintRule` | A | CS1061 / CS0117 | `TextBlockElement` | fluent text helpers (`.FontSize`, `.SemiBold`, …); Reactor has no `Style` member | 5 across both `.Style(...)` and `with { Style = ... }` shapes |
 | `ThemeRawResourceKeyRule` | A | CS0117 | `Theme` | real `Theme.*` aliases (`Theme.LayerFill`, `Theme.Accent`, …) for WinUI `<X>FillColor<Y>` ThemeResource key names | run5 opus-4.7 only; bar #2 partial |
+| `ColorStringLiteralRule` | analyzer mirror | `REACTOR_DYM_006` | `BrushHelper` / `ResourceBuilder` / `ElementExtensions` | the hex for an unparseable constant color string (`"orange"` → `"#FFA500"`, `"#888"` → `"#888888"`), or `new FontFamily("…")` under a `*FontFamily` resource key when that `ResourceBuilder.Set` overload exists. **First rule anchored on an analyzer ID**: the mistake compiles, so there is no CS code to hang it on (issue #1375); the rewrite is read from the analyzer's message | n/a — mirrors the in-build analyzer |
 
 ### Suggest-gate carve-out for Tier-3 rules
 
@@ -503,7 +505,7 @@ Branch: `eval/spec-038-ec3-2026-05-11` at commit `2b7090f`. Six rules + the two 
 - `RuleSymbolResolver.cs` — `ResolveType(string)`, `ResolveMethod(INamedTypeSymbol, string)`, `ResolveMember(INamedTypeSymbol, string)`. Cached via `ConditionalWeakTable<CSharpCompilation, _>` so two callers with the same compilation reference share caches; per-compilation resolver identity is test-locked.
 - CLI: `--disable-rule <Name>` (repeatable), `--list-rules` (prints name/provenance/status table; short-circuits before `dotnet build` runs). Unknown `--disable-rule` names warn instead of error.
 
-**The six rules** — see the table in §3 for the full inventory. Four Class-A (induced from the cross-corpus audit) + two Class-B (vocabulary-translation, structurally justified). All six bind through `RuleSymbolResolver`; no string-matching.
+**The six rules** — see the table in §3 for the full inventory. Four Class-A (induced from the cross-corpus audit) + two Class-B (vocabulary-translation, structurally justified). All six bind through `RuleSymbolResolver`; no string-matching. A seventh, `ColorStringLiteralRule` (issue #1375), landed later on `main`: it mirrors the in-build `REACTOR_DYM_006` analyzer rather than a corpus cluster, anchors on that analyzer ID, and reads its rewrite from the analyzer's message.
 
 **Two critical correctness fixes** (both blocked any real-world rule firing prior; surfaced by end-to-end smoke testing during Phase 3):
 

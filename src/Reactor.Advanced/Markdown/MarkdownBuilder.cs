@@ -19,6 +19,15 @@ namespace Microsoft.UI.Reactor.Markdown;
 /// </summary>
 public record MarkdownOptions
 {
+    /// <summary>
+    /// Opt into semantic text surfaces by setting a non-null value, then wrap the
+    /// complete message with <see cref="MarkdownTextSelection.Scope"/>. Surfaces belong
+    /// to the nearest scope by structure, not options identity. Only the scope's
+    /// options supply copy feedback; callbacks on this parser opt-in are not used.
+    /// Custom HTML/code renderers should wrap their visible text (not toolbar chrome)
+    /// with <see cref="MarkdownTextSelection.Surface"/>.
+    /// </summary>
+    public MarkdownTextSelectionOptions? TextSelection { get; init; }
     /// <summary>Override heading rendering. (level 1-6, defaultElement)</summary>
     public Func<int, Element, Element>? Heading { get; init; }
     /// <summary>Override paragraph rendering. (defaultElement)</summary>
@@ -71,11 +80,18 @@ public record MarkdownOptions
     /// <summary>Parser flags. Default: DialectGitHub (tables, strikethrough, task lists).</summary>
     public MarkdownParserFlags ParserFlags { get; init; } = MarkdownParserFlags.DialectGitHub;
     /// <summary>
-    /// Override link rendering. (displayInlines, navigateUri) → element.
-    /// Apps that want to require a confirmation UX or unfurl/origin-preview
-    /// for cross-site hyperlinks should provide this. TASK-048.
+    /// Override link rendering. Receives a <see cref="MarkdownLink"/> with the
+    /// link's plain-text label, formatted label, and validated target, and returns
+    /// the element to show in its place. TASK-048.
+    /// Called only for links whose target is an absolute <c>http</c>, <c>https</c>,
+    /// or <c>mailto</c> URI; other links render as plain text. Apps that want to
+    /// require a confirmation UX or unfurl/origin-preview for cross-site hyperlinks
+    /// should provide this. The returned non-null element is embedded inline as
+    /// custom UI with its own selection boundary; the callback owns its accessible
+    /// name, styling, and interaction. With no override, links remain native text
+    /// hyperlinks.
     /// </summary>
-    public Func<Element[], Uri, Element>? LinkBuilder { get; init; }
+    public Func<MarkdownLink, Element>? LinkBuilder { get; init; }
     /// <summary>
     /// Hard cap on input markdown size in bytes. Default 4 MiB. Inputs past
     /// the cap throw at <see cref="MarkdownBuilder.Build"/>. TASK-049.
@@ -146,10 +162,18 @@ internal sealed class MarkdownBuilder
     // Link tracking.
     private Uri? _linkUri;
     private int _linkInlineStart;
+    private int _customLinkDepth;
+    private int _customImageDepth;
+    // Alt text of images rendered inside a custom link label, keyed by _inlines index.
+    private Dictionary<int, string>? _linkImageAlt;
+
+    private bool HasCustomLink => _options.LinkBuilder is not null;
 
     // Image tracking.
     private bool _insideImage;
     private StringBuilder? _imageAlt;
+    // Normalized alt text (entities decoded, breaks as spaces) for MarkdownLink.Text.
+    private StringBuilder? _imageAltPlain;
     private Uri? _imageSrc;
 
     // Table state.
@@ -330,7 +354,7 @@ internal sealed class MarkdownBuilder
     {
         var frame = _blockStack.Pop();
 
-        if (_options.UnifiedRichText)
+        if (_options.UnifiedRichText && _options.TextSelection is null)
         {
             _result = BuildUnifiedDocument(frame.Children);
             return;
@@ -410,7 +434,7 @@ internal sealed class MarkdownBuilder
         if (_options.Paragraph is not null)
             element = _options.Paragraph(element);
 
-        AddToParent(element);
+        AddToParent(Selectable(PlainText(inlines), element));
     }
 
     private void LeaveHeading(object? detail)
@@ -431,22 +455,24 @@ internal sealed class MarkdownBuilder
             };
         }
 
-        double fontSize = level switch
-        {
-            1 => 28,
-            2 => 24,
-            3 => 20,
-            4 => 18,
-            5 => 16,
-            _ => 14,
-        };
+        double fontSize = HeadingFontSize(level);
 
         Element element = MakeRichText(boldInlines, fontSize);
         if (_options.Heading is not null)
             element = _options.Heading(level, element);
 
-        AddToParent(element);
+        AddToParent(Selectable(PlainText(inlines), element));
     }
+
+    private static double HeadingFontSize(int level) => level switch
+    {
+        1 => 28,
+        2 => 24,
+        3 => 20,
+        4 => 18,
+        5 => 16,
+        _ => 14,
+    };
 
     private void LeaveBlockQuote()
     {
@@ -537,7 +563,7 @@ internal sealed class MarkdownBuilder
         // The Star column hands the content the finite width left over beside the marker, which is
         // what lets long text wrap onto additional lines.
         Element element = Grid([GridSize.Auto, GridSize.Star()], [],
-            TextBlock(marker).VAlign(VerticalAlignment.Top),
+            Selectable(marker, TextBlock(marker), "").VAlign(VerticalAlignment.Top),
             content.Grid(column: 1)
         ) with { ColumnSpacing = 4 };
 
@@ -557,7 +583,7 @@ internal sealed class MarkdownBuilder
         {
             var inlines = _inlines.ToArray();
             _inlines.Clear();
-            frame.Children.Add(MakeRichText(inlines));
+            frame.Children.Add(Selectable(PlainText(inlines), MakeRichText(inlines)));
         }
     }
 
@@ -576,15 +602,15 @@ internal sealed class MarkdownBuilder
         }
         else
         {
-            element = Border(
+            element = Border(Selectable(code,
                 RichTextBlock("") with
                 {
                     Paragraphs = [new RichTextParagraph([
                         new RichTextRun(code) { FontFamily = _options.CodeFontFamily }
                     ])],
-                    IsTextSelectionEnabled = true,
+                    IsTextSelectionEnabled = _options.TextSelection is null,
                     TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap,
-                }
+                })
             )
             .Background(Theme.CardBackground)
             .WithBorder(Theme.CardStroke, 1)
@@ -657,11 +683,21 @@ internal sealed class MarkdownBuilder
     {
         var frame = _blockStack.Pop();
         // Thead/Tbody are passthrough — rows are already added to tableAllCells.
+        if (_options.TextSelection is not null && _blockStack.Count > 0)
+            _blockStack.Peek().Children.AddRange(frame.Children);
     }
 
     private void LeaveTableRow()
     {
         var frame = _blockStack.Pop();
+        if (_options.TextSelection is not null && _tableAllCells.LastOrDefault() is MarkdownSelectionElement last)
+        {
+            _tableAllCells[^1] = last with { SeparatorAfter = "\n" };
+            if (frame.Children.LastOrDefault() is MarkdownSelectionElement rowLast)
+                frame.Children[^1] = rowLast with { SeparatorAfter = "\n" };
+            var columns = Enumerable.Repeat(Microsoft.UI.Reactor.GridSize.Star(), _tableColCount).ToArray();
+            _blockStack.Peek().Children.Add(Grid(columns, [], frame.Children.ToArray()));
+        }
         _tableRowIndex++;
         _tableCellIndex = 0;
     }
@@ -704,19 +740,45 @@ internal sealed class MarkdownBuilder
         // Microsoft.UI.Xaml.Controls.RichTextBlock.Padding, so no extra Border
         // layer is needed (which would change the layout-bounds shape).
         var pad = _options.TableCellPadding;
-        cell = cell
-            .Padding(pad.Left, pad.Top, pad.Right, pad.Bottom)
-            .Grid(row: _tableRowIndex, column: _tableCellIndex);
+        cell = cell.Padding(pad.Left, pad.Top, pad.Right, pad.Bottom);
 
         // Header row gets a theme-aware background (default Theme.SubtleFill).
         if (isHeader && _options.TableHeaderBackground is { } headerBg)
             cell = cell.Background(headerBg);
 
+        cell = Selectable(PlainText(inlines), cell, "\t")
+            .Grid(row: _tableRowIndex, column: _tableCellIndex);
         _tableAllCells.Add(cell);
+        if (_options.TextSelection is not null && _blockStack.Count > 0)
+            _blockStack.Peek().Children.Add(cell.Grid(row: 0, column: _tableCellIndex));
         _tableCellIndex++;
     }
 
     // ── Span callbacks ───────────────────────────────────────────────────
+
+    private Element Selectable(string text, Element content, string separator = "\n") =>
+        _options.TextSelection is null ? content :
+            content is MarkdownSelectionElement { Role: SelectionRole.Surface } surface
+                ? surface : MarkdownTextSelection.Surface(text, content, separator);
+
+    private static string PlainText(IEnumerable<RichTextInline> inlines)
+    {
+        var text = new StringBuilder();
+        foreach (var inline in inlines)
+        {
+            switch (inline)
+            {
+                case RichTextRun run: text.Append(run.Text); break;
+                case RichTextHyperlink link: text.Append(link.Text); break;
+                case RichTextLineBreak: text.Append('\n'); break;
+                case RichTextInlineUIContainer { Child: MarkdownSelectionElement surface }
+                    when surface.Role == SelectionRole.Surface:
+                    text.Append(surface.Text);
+                    break;
+            }
+        }
+        return text.ToString();
+    }
 
     private int OnEnterSpan(MarkdownSpanType type, object? detail)
     {
@@ -735,16 +797,26 @@ internal sealed class MarkdownBuilder
                 _isStrikethrough = true;
                 break;
             case MarkdownSpanType.A:
+                if (HasCustomLink)
+                {
+                    // Image alt text and nested autolinks belong to the outer label.
+                    if (_customImageDepth > 0) break;
+                    if (++_customLinkDepth > 1) break;
+                }
                 if (detail is MarkdownSpanADetail a && a.Href.Text is not null)
                 {
                     Uri.TryCreate(a.Href.Text, UriKind.RelativeOrAbsolute, out var uri);
                     _linkUri = IsSafeUri(uri) ? uri : null;
                 }
                 _linkInlineStart = _inlines.Count;
+                _linkImageAlt?.Clear();
                 break;
             case MarkdownSpanType.Img:
+                if (HasCustomLink && ++_customImageDepth > 1) break;
                 _insideImage = true;
                 _imageAlt = new StringBuilder();
+                if (_linkUri is not null && HasCustomLink)
+                    _imageAltPlain = new StringBuilder();
                 if (detail is MarkdownSpanImgDetail img && img.Src.Text is not null)
                 {
                     Uri.TryCreate(img.Src.Text, UriKind.RelativeOrAbsolute, out var imgUri);
@@ -772,9 +844,15 @@ internal sealed class MarkdownBuilder
                 _isStrikethrough = false;
                 break;
             case MarkdownSpanType.A:
+                if (HasCustomLink)
+                {
+                    if (_customImageDepth > 0) break;
+                    if (--_customLinkDepth > 0) break;
+                }
                 LeaveLink();
                 break;
             case MarkdownSpanType.Img:
+                if (HasCustomLink && --_customImageDepth > 0) break;
                 LeaveImage();
                 break;
         }
@@ -802,11 +880,25 @@ internal sealed class MarkdownBuilder
             return;
         }
 
+        var labelInlines = _inlines.GetRange(_linkInlineStart, _inlines.Count - _linkInlineStart).ToArray();
+        if (_options.LinkBuilder is { } buildLink)
+        {
+            var link = new MarkdownLink
+            {
+                Text = LinkPlainText(labelInlines),
+                Label = labelInlines.Length == 0 ? null : MakeLinkLabel(labelInlines),
+                Uri = _linkUri,
+            };
+            ReplaceLinkInlines(Selectable(link.Text, buildLink(link)
+                ?? throw new InvalidOperationException("MarkdownOptions.LinkBuilder must return a non-null Element."), ""));
+            return;
+        }
+
         // Flatten all inlines accumulated since the link opened into plain text.
         var sb = new StringBuilder();
-        for (int i = _linkInlineStart; i < _inlines.Count; i++)
+        foreach (var inline in labelInlines)
         {
-            if (_inlines[i] is RichTextRun run)
+            if (inline is RichTextRun run)
                 sb.Append(run.Text);
         }
 
@@ -819,11 +911,60 @@ internal sealed class MarkdownBuilder
         _linkUri = null;
     }
 
+    private void ReplaceLinkInlines(Element element)
+    {
+        _inlines.RemoveRange(_linkInlineStart, _inlines.Count - _linkInlineStart);
+        _inlines.Add(new RichTextInlineUIContainer { Child = element });
+        _linkImageAlt?.Clear();
+        _linkUri = null;
+    }
+
+    private string LinkPlainText(RichTextInline[] labelInlines)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < labelInlines.Length; i++)
+        {
+            switch (labelInlines[i])
+            {
+                case RichTextRun run:
+                    sb.Append(run.Text);
+                    break;
+                case RichTextLineBreak:
+                    sb.Append(' ');
+                    break;
+                case RichTextInlineUIContainer when _linkImageAlt is not null
+                    && _linkImageAlt.TryGetValue(_linkInlineStart + i, out var alt):
+                    sb.Append(alt);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private RichTextBlockElement MakeLinkLabel(RichTextInline[] inlines)
+    {
+        var frame = _blockStack.Peek();
+        double? fontSize = frame.Type == MarkdownBlockType.H
+            ? HeadingFontSize(frame.Detail is MarkdownBlockHDetail heading ? heading.Level : 1)
+            : null;
+        if (fontSize.HasValue || frame.Type == MarkdownBlockType.Th)
+        {
+            for (int i = 0; i < inlines.Length; i++)
+            {
+                if (inlines[i] is RichTextRun run)
+                    inlines[i] = run with { IsBold = true };
+            }
+        }
+        return MakeRichText(inlines, fontSize);
+    }
+
     private void LeaveImage()
     {
         _insideImage = false;
         string alt = _imageAlt?.ToString() ?? "";
         _imageAlt = null;
+        string plainAlt = _imageAltPlain?.ToString() ?? alt;
+        _imageAltPlain = null;
 
         if (_imageSrc is not null)
         {
@@ -833,8 +974,12 @@ internal sealed class MarkdownBuilder
             else
                 img = Image(_imageSrc.ToString());
 
-            // Images are block-level — add to parent frame.
-            if (_blockStack.Count > 0)
+            if (_linkUri is not null && HasCustomLink)
+            {
+                (_linkImageAlt ??= new())[_inlines.Count] = plainAlt;
+                _inlines.Add(new RichTextInlineUIContainer { Child = img });
+            }
+            else if (_blockStack.Count > 0)
                 _blockStack.Peek().Children.Add(img);
         }
         _imageSrc = null;
@@ -862,6 +1007,25 @@ internal sealed class MarkdownBuilder
         if (_insideImage)
         {
             _imageAlt?.Append(text);
+            if (_imageAltPlain is not null)
+            {
+                switch (type)
+                {
+                    case MarkdownTextType.SoftBr:
+                    case MarkdownTextType.Br:
+                        _imageAltPlain.Append(' ');
+                        break;
+                    case MarkdownTextType.Entity:
+                        _imageAltPlain.Append(DecodeEntity(text.ToString()));
+                        break;
+                    case MarkdownTextType.NullChar:
+                        _imageAltPlain.Append('\uFFFD');
+                        break;
+                    default:
+                        _imageAltPlain.Append(text);
+                        break;
+                }
+            }
             return 0;
         }
 
@@ -910,31 +1074,47 @@ internal sealed class MarkdownBuilder
         });
     }
 
-    private void AddEntityText(string entityStr)
+    private void AddEntityText(string entityStr) => AddInlineRun(DecodeEntity(entityStr));
+
+    private static string DecodeEntity(string entityStr)
     {
+        if (entityStr.Length > 3 && entityStr[1] == '#')
+            return DecodeNumericReference(entityStr);
         var entity = Md4cEntity.EntityLookup(entityStr);
-        if (entity is not null)
-        {
-            var sb = new StringBuilder();
-            sb.Append(char.ConvertFromUtf32((int)entity.Value.Codepoint0));
-            if (entity.Value.Codepoint1 != 0)
-                sb.Append(char.ConvertFromUtf32((int)entity.Value.Codepoint1));
-            AddInlineRun(sb.ToString());
-        }
-        else
-        {
-            // Unknown entity — pass through verbatim.
-            AddInlineRun(entityStr);
-        }
+        if (entity is null)
+            return entityStr; // Unknown entity — pass through verbatim.
+        var decoded = char.ConvertFromUtf32((int)entity.Value.Codepoint0);
+        return entity.Value.Codepoint1 != 0
+            ? decoded + char.ConvertFromUtf32((int)entity.Value.Codepoint1)
+            : decoded;
     }
 
-    private static RichTextBlockElement MakeRichText(RichTextInline[] inlines, double? fontSize = null)
+    // md4c reports "&#123;" / "&#x7B;" as entity text that the renderer decodes.
+    // Per CommonMark, 0, surrogates and out-of-range code points become U+FFFD.
+    private static string DecodeNumericReference(string reference)
+    {
+        bool hex = reference[2] is 'x' or 'X';
+        uint codepoint = 0;
+        for (int i = hex ? 3 : 2; i < reference.Length - 1; i++)
+        {
+            char c = reference[i];
+            uint digit = hex && !char.IsAsciiDigit(c) ? (uint)(char.ToLowerInvariant(c) - 'a' + 10) : (uint)(c - '0');
+            codepoint = (hex ? 16u : 10u) * codepoint + digit;
+            if (codepoint > 0x10FFFF)
+                break;
+        }
+        if (codepoint == 0 || codepoint > 0x10FFFF || codepoint is >= 0xD800 and <= 0xDFFF)
+            codepoint = 0xFFFD;
+        return char.ConvertFromUtf32((int)codepoint);
+    }
+
+    private RichTextBlockElement MakeRichText(RichTextInline[] inlines, double? fontSize = null)
     {
         return RichTextBlock("") with
         {
             Paragraphs = [new RichTextParagraph(inlines)],
             FontSize = fontSize,
-            IsTextSelectionEnabled = true,
+            IsTextSelectionEnabled = _options.TextSelection is null,
         };
     }
 

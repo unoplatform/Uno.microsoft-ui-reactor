@@ -291,6 +291,18 @@ public sealed partial class ReactorWindow : IDisposable
     internal nint Hwnd => _hwnd;
 
     /// <summary>
+    /// The type name <c>ReactorEventSource.WindowOpened</c> reported for this window, so the
+    /// matching <c>WindowClosed</c> names it the same way; <c>null</c> until the open is
+    /// reported and again once the close is.
+    /// </summary>
+    internal string? DiagnosticWindowType { get; set; }
+
+    // True once teardown has started. The host is disposed first on a native close (its
+    // Window.Closed handler runs before this window's), and this window first on a direct
+    // Dispose(); component cleanups run during either, so both flags are needed.
+    internal bool IsClosingOrDisposed => _disposed || _host.IsDisposed;
+
+    /// <summary>
     /// When <c>true</c>, this window is an auxiliary surface (e.g. a docking
     /// tear-off floating window) that must never be elected the application's
     /// <see cref="ReactorApp.PrimaryWindow"/> and so never drives the
@@ -1311,11 +1323,11 @@ public sealed partial class ReactorWindow : IDisposable
     {
         // GWLP_HWNDPARENT — the owner-window slot. Distinct from the
         // GWLP_PARENT used by child controls (which we never want for top-
-        // level windows). 64-bit Reactor builds always use SetWindowLongPtrW.
+        // level windows).
         private const int GWLP_HWNDPARENT = -8;
 
-        [global::System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-        private static extern nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong);
+        private static nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong)
+            => NativeWindowLong.SetWindowLongPtr(hWnd, nIndex, dwNewLong);
 
         public static void SetOwner(nint child, nint owner)
         {
@@ -2453,6 +2465,11 @@ public sealed partial class ReactorWindow : IDisposable
         return new GuardToken(this, guard);
     }
 
+    internal int ClosingGuardCountForTests
+    {
+        get { lock (_closingGuardsLock) { return _closingGuards.Count; } }
+    }
+
     private sealed class GuardToken : IDisposable
     {
         private readonly ReactorWindow _owner;
@@ -3273,11 +3290,11 @@ public sealed partial class ReactorWindow : IDisposable
         public const uint SWP_FRAMECHANGED = 0x0020;
         public static readonly nint DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-        public static extern nint GetWindowLongPtr(nint hWnd, int nIndex);
+        public static nint GetWindowLongPtr(nint hWnd, int nIndex)
+            => NativeWindowLong.GetWindowLongPtr(hWnd, nIndex);
 
-        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-        public static extern nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong);
+        public static nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong)
+            => NativeWindowLong.SetWindowLongPtr(hWnd, nIndex, dwNewLong);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -3357,11 +3374,11 @@ public sealed partial class ReactorWindow : IDisposable
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_FRAMECHANGED = 0x0020;
 
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-        public static extern nint GetWindowLongPtr(nint hWnd, int nIndex);
+        public static nint GetWindowLongPtr(nint hWnd, int nIndex)
+            => NativeWindowLong.GetWindowLongPtr(hWnd, nIndex);
 
-        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-        public static extern nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong);
+        public static nint SetWindowLongPtr(nint hWnd, int nIndex, nint dwNewLong)
+            => NativeWindowLong.SetWindowLongPtr(hWnd, nIndex, dwNewLong);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

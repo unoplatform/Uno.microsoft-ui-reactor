@@ -17,13 +17,36 @@ namespace Microsoft.UI.Reactor.Core;
 /// because the dictionary's int keys no longer matched the repeater's
 /// new positions. Keying by string makes the mapping reorder-stable.
 /// </remarks>
-public sealed partial class ElementFactory<T> : IElementFactory
+public sealed partial class ElementFactory<T> : IElementFactory, IContextCapturingFactory
 {
     private IReadOnlyList<T> _items;
     private Func<T, int, Element> _viewBuilder;
     private readonly Reconciler _reconciler;
     private readonly Action _requestRerender;
     private readonly ElementPool? _pool;
+
+    // The host's provider-stack snapshot. GetElement runs from WinUI layout,
+    // outside the traversal that maintains the reconciler's context stack, so
+    // rows replay this instead (see ContextCapture). Built-in hosts attach the
+    // capture registered on their control, which the reconciler also refreshes
+    // when the host is skipped. A factory installed by an out-of-tree handler has
+    // none attached and falls back to _ownCapture, which it takes itself at
+    // construction and in UpdateInPlace — both run inside the host's Mount/Update,
+    // where the live stack is the host's. Attaching a host capture drops the
+    // fallback so it cannot pin mount-time provider values for the list's lifetime.
+    private ContextCapture? _hostCapture;
+    private ContextCapture? _ownCapture;
+
+    ContextCapture? IContextCapturingFactory.ContextCapture
+    {
+        get => _hostCapture;
+        set
+        {
+            _hostCapture = value;
+            if (value is not null)
+                _ownCapture = null;
+        }
+    }
     // Optional state used when ItemsSource is the OC<ReactorRow> path
     // (spec 042). Lets GetElement translate an ItemsRepeater realized
     // index → stable key for _mountedElements lookup. Null when running
@@ -288,6 +311,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
         _reconciler = reconciler;
         _requestRerender = requestRerender;
         _pool = pool;
+        _ownCapture = reconciler.CaptureLiveContext();
     }
 
     /// <summary>
@@ -301,6 +325,8 @@ public sealed partial class ElementFactory<T> : IElementFactory
     {
         _items = items;
         _viewBuilder = viewBuilder;
+        if (_ownCapture is not null)
+            _reconciler.RefreshLiveContext(_ownCapture);
         // A new viewBuilder closure may capture different external state (UseState
         // cells, Observable subscriptions, theme, etc.) than the one that produced the
         // cached <see cref="ViewBuilderCacheEntry.Built"/> entries. We can't see through
@@ -339,10 +365,13 @@ public sealed partial class ElementFactory<T> : IElementFactory
     internal void RefreshRealizedItems(Microsoft.UI.Xaml.Controls.ItemsRepeater repeater)
     {
         // If scrolling restarted after the render was dispatched, skip reconciliation.
-        // The next settle timer will pick it up when scrolling truly stops.
-        if (ShouldSkipRefresh?.Invoke() == true)
+        // The next settle timer will pick it up when scrolling truly stops. A resource refresh
+        // (Theme.NotifyResourcesChanged) is a one-shot pass with no later settle to catch up,
+        // so it reconciles the realized rows even mid-scroll.
+        if (!_reconciler.ResourceRefreshActive && ShouldSkipRefresh?.Invoke() == true)
             return;
 
+        using var realizationTheme = _reconciler.EnterRealizationTheme(repeater);
         // Snapshot the keys we currently believe are realized. The actual
         // realized set may have changed since the last GetElement, but the
         // ItemsRepeater authoritatively tells us per-key via TryGetElement
@@ -458,6 +487,8 @@ public sealed partial class ElementFactory<T> : IElementFactory
                     // previous row's call site (spec 010).
                     if (child is FrameworkElement adoptedFe)
                         Reconciler.SetElementTagIfNeeded(adoptedFe, newElement);
+                    if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled)
+                        Reconciler.AdoptPublishedSource(child, replacement);
                 }
                 else
                 {
@@ -474,6 +505,7 @@ public sealed partial class ElementFactory<T> : IElementFactory
                     _mountedElements.Remove(key);
                     _reconciler.UnmountChild(replacement);
                     ScheduleReRealize(key);
+                    continue;
                 }
             }
             else
@@ -486,6 +518,8 @@ public sealed partial class ElementFactory<T> : IElementFactory
                 // (PR #324 review)
                 _lastElementByControl[child] = newElement;
             }
+            if (child is FrameworkElement realizedElement)
+                Reconciler.GetOrCreateReactorState(realizedElement).RealizationTheme = realizationTheme.Theme;
         }
     }
 
@@ -595,11 +629,16 @@ public sealed partial class ElementFactory<T> : IElementFactory
         if (index < 0 || index >= _items.Count)
             return new TextBlock { Text = "" };
 
+        using var restoreContext = _reconciler.EnterRealization(_hostCapture ?? _ownCapture, args.Parent);
+
         var item = _items[index];
         var element = BuildOrCache(key, item, index, keyed);
+        TryTakeCompatibleFromPool(element, out var reused, out var oldElement, out var parkedVisibility);
+        // Rows realize during layout, outside any root pass: inherit the repeater's theme.
+        using var realizationTheme = _reconciler.EnterRealizationTheme(args.Parent, reused);
 
         UIElement? control;
-        if (TryTakeCompatibleFromPool(element, out var reused, out var oldElement, out var parkedVisibility))
+        if (reused is not null && oldElement is not null)
         {
             // Reuse a previously-recycled container. The framework still has
             // it parented to the ItemsRepeater, so the ViewManager.cpp:866
@@ -634,6 +673,8 @@ public sealed partial class ElementFactory<T> : IElementFactory
                     // location follows the row that is actually live (spec 010).
                     if (reused is FrameworkElement adoptedFe)
                         Reconciler.SetElementTagIfNeeded(adoptedFe, element);
+                    if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported && Diagnostics.ReactorSourcePublisher.IsEnabled)
+                        Reconciler.AdoptPublishedSource(reused, replacement);
                 }
                 else
                 {
@@ -659,6 +700,8 @@ public sealed partial class ElementFactory<T> : IElementFactory
         _mountedElements[key] = element;
         if (control is not null)
         {
+            if (control is FrameworkElement realizedElement)
+                Reconciler.GetOrCreateReactorState(realizedElement).RealizationTheme = realizationTheme.Theme;
             _keyByControl[control] = key;
             _lastElementByControl[control] = element;
             if (_keyByControl.Count > _maxRealized) _maxRealized = _keyByControl.Count;
