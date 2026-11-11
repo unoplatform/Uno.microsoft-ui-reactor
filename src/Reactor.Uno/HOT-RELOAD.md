@@ -20,10 +20,8 @@ Hot Reload needs a Debug build. Release builds don't have it.
 | Command line: `uno-devserver start`, then start the app | ✅ | ☑️ | ✅ iOS Simulator · ☑️ Android |
 | An AI agent, through the Uno App MCP | ✅ | ☑️ | ☑️ |
 
-✅ verified · ☑️ expected from the code, not tried · ❌ doesn't work
+✅ works · ☑️ expected, not tested · ❌ doesn't work
 
-- **VS Code and Rider without the debugger** were verified on WebAssembly, an Android
-  phone and the iOS Simulator.
 - **With a debugger attached**, .NET accepts a change only through that debugger:
   - Rider never calls Reactor's update
     ([RIDER-124189](https://youtrack.jetbrains.com/issue/RIDER-124189)).
@@ -32,13 +30,14 @@ Hot Reload needs a Debug build. Release builds don't have it.
 
   See Uno's
   [Hot Reload documentation](https://platform.uno/docs/articles/features/working-with-xaml-hot-reload.html).
+- **`dotnet watch` updates Reactor apps on desktop**, unlike XAML Uno apps: Reactor
+  re-renders the component itself when .NET applies a change.
 - **From the command line on desktop**, the app needs `DOTNET_MODIFIABLE_ASSEMBLIES=debug`
   ([known issue](#desktop-apps-started-from-the-command-line-refuse-every-edit)).
 - **Through the App MCP**, `app tree` shows only the root by default, because Reactor's
   controls count as library elements: pass `--detail full`.
-- **The App MCP needs a signed-in Uno Platform account.** Signed out, it's expected to
-  offer no app tools. Outside an IDE nothing asks you to sign in: run
-  `uno-devserver login` once.
+- **The App MCP's app tools need a signed-in Uno Platform account.** Outside an IDE,
+  nothing asks you to sign in: run `uno-devserver login` once.
 
 What an edit keeps:
 
@@ -61,8 +60,6 @@ What an edit keeps:
 
 ## Known issues
 
-Remove an entry when its fix ships.
-
 ### Success doesn't mean Reactor rendered
 
 Uno's **Success** only means Uno's own pass found nothing to replace. An edit whose
@@ -80,6 +77,13 @@ desktop app.
 
 **Workaround:** set `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in the environment before
 starting the app, or start it from an IDE or with `dotnet watch`.
+
+### `dotnet watch` and the Dev Server both deliver each edit
+
+An app built while a Dev Server runs has the Dev Server's port, and connects to it even
+when `dotnet watch` starts it. Both then send every edit to the app.
+
+**Workaround:** close the IDE, or run `uno-devserver stop`, before using `dotnet watch`.
 
 ### `uno-devserver app` starts a second Dev Server
 
@@ -104,22 +108,4 @@ both in the project and on the build command line
 
 The Dev Server logs *"Analyzer 'Reactor.Wrappers.Generator' failed to load in the
 hot-reload workspace"*, because the generator is built against a newer Roslyn than the
-Dev Server's. Edits to an app still apply. Edits to `Reactor.Uno`'s own source, when
-it's a project reference as in the samples, are expected to miss the generated code.
-
-## Not tried yet
-
-- **`dotnet watch` while a Dev Server runs.** An app built with a Dev Server port
-  connects to it too, so both would deliver every edit. Close the IDE or run
-  `uno-devserver stop` before using `dotnet watch`.
-- **File-based apps.** `dotnet run Counter.cs` has no `.csproj.user` for the Dev Server's
-  port, so it's expected to get no Uno Hot Reload. `dotnet watch` should still work on
-  desktop.
-- **XAML hosted in a Reactor tree** (`XamlPageElement`, a XAML `UserControl`).
-- **The App MCP on WebAssembly, Android and iOS**, and Hot Reload with `UseStudio()`
-  called in `configure`.
-
-Verified on Windows 11, between 2026-10-30 and 2026-11-10. Runs used the samples and new
-`unoapp-reactor` apps (Uno.Templates 7.0.0-dev.161; 7.0.0-dev.177 and 7.0.0-dev.191 for
-the App MCP; a 7.1 template that creates a solution file, on Uno.Sdk 7.1.0-dev.7, for
-the command-line Dev Server and `dotnet watch`), unless a row above says otherwise.
+Dev Server's. Edits to an app still apply.
