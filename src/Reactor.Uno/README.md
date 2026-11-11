@@ -387,11 +387,9 @@ to run (`--non-interactive` stops instead).
 **With the Uno Dev Server instead**, which every target can use: start it with
 `uno-devserver start` from a folder holding a solution, *before* building, since it
 writes its port into the project's `.csproj.user` and the build stamps that port on
-the app. On desktop, start the app with `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its
-environment. The samples README has the
-[commands](../../samples/Uno/README.md#ios-simulator), and
-[HOT-RELOAD.md](HOT-RELOAD.md#new-unoapp-reactor-apps-have-no-solution-file) covers
-apps made from the template, which come without a solution.
+the app. Apps made from the template have their solution next to the project. On
+desktop, start the app with `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment.
+The samples README has the [commands](../../samples/Uno/README.md#ios-simulator).
 
 ## Known limitations / notes
 

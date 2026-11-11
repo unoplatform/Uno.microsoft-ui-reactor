@@ -36,6 +36,9 @@ Hot Reload needs a Debug build. Release builds don't have it.
   ([known issue](#desktop-apps-started-from-the-command-line-refuse-every-edit)).
 - **Through the App MCP**, `app tree` shows only the root by default, because Reactor's
   controls count as library elements: pass `--detail full`.
+- **The App MCP needs a signed-in Uno Platform account.** Signed out, it's expected to
+  offer no app tools. Outside an IDE nothing asks you to sign in: run
+  `uno-devserver login` once.
 
 What an edit keeps:
 
@@ -78,18 +81,6 @@ desktop app.
 **Workaround:** set `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in the environment before
 starting the app, or start it from an IDE or with `dotnet watch`.
 
-### New `unoapp-reactor` apps have no solution file
-
-Without a solution, `uno-devserver start` doesn't write its port into the project's
-`.csproj.user`, so the app has no Dev Server to connect to.
-
-**Workaround:** add a solution before starting the Dev Server:
-
-```bash
-dotnet new sln --format slnx
-dotnet sln add MyApp.csproj
-```
-
 ### `uno-devserver app` starts a second Dev Server
 
 If `uno-devserver start` ran in a folder with no solution file, a later
@@ -128,6 +119,7 @@ it's a project reference as in the samples, are expected to miss the generated c
 - **The App MCP on WebAssembly, Android and iOS**, and Hot Reload with `UseStudio()`
   called in `configure`.
 
-Verified on Windows 11, between 2026-10-30 and 2026-11-06. Runs used the samples and new
-`unoapp-reactor` apps (Uno.Templates 7.0.0-dev.161, and 7.0.0-dev.177 for the App MCP),
-unless a row above says otherwise.
+Verified on Windows 11, between 2026-10-30 and 2026-11-10. Runs used the samples and new
+`unoapp-reactor` apps (Uno.Templates 7.0.0-dev.161; 7.0.0-dev.177 and 7.0.0-dev.191 for
+the App MCP; a 7.1 template that creates a solution file, on Uno.Sdk 7.1.0-dev.7, for
+the command-line Dev Server and `dotnet watch`), unless a row above says otherwise.
