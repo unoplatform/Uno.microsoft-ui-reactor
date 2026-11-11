@@ -3,11 +3,11 @@
 Editing a component updates the running app, and the state held in its hooks survives.
 This page lists where that works, what doesn't, and the known issues with their
 workarounds. For the commands, see the port README's [Hot Reload](README.md#hot-reload)
-section and the samples' [Hot Reload](../../samples/Uno/README.md#hot-reload) commands.
+section.
 
 ## Support
 
-Hot Reload needs a Debug build. Release builds don't have it.
+Hot Reload needs a Debug build. A Release build applies no edit.
 
 | How the app is started | Desktop | WebAssembly | Android, iOS |
 |---|:---:|:---:|:---:|
@@ -22,61 +22,78 @@ Hot Reload needs a Debug build. Release builds don't have it.
 
 ✅ works · ☑️ expected, not tested · ❌ doesn't work
 
-- **With a debugger attached**, .NET accepts a change only through that debugger:
-  - Rider never calls Reactor's update
-    ([RIDER-124189](https://youtrack.jetbrains.com/issue/RIDER-124189)).
-  - VS Code's debugger applies changes on Android and iOS only.
-  - Visual Studio applies changes to Android and iOS only with its debugger attached.
-
-  See Uno's
-  [Hot Reload documentation](https://platform.uno/docs/articles/features/working-with-xaml-hot-reload.html).
 - **`dotnet watch` updates Reactor apps on desktop**, unlike XAML Uno apps: Reactor
-  re-renders the component itself when .NET applies a change.
+  re-renders the component tree when .NET applies a change.
+- **With a debugger attached**, .NET accepts a change only through that debugger.
+  Rider's debugger never calls Reactor's update
+  ([RIDER-124189](https://youtrack.jetbrains.com/issue/RIDER-124189)). For Visual
+  Studio and the Uno Platform debugger in VS Code, see Uno's
+  [Hot Reload documentation](https://platform.uno/docs/articles/features/working-with-xaml-hot-reload.html).
 - **From the command line on desktop**, the app needs `DOTNET_MODIFIABLE_ASSEMBLIES=debug`
   ([known issue](#desktop-apps-started-from-the-command-line-refuse-every-edit)).
+- **The Uno Dev Server needs a signed-in Uno Platform account** for Hot Reload and the
+  App MCP. Outside an IDE, nothing asks you to sign in: run `uno-devserver login` once.
 - **Through the App MCP**, `app tree` shows only the root by default, because Reactor's
   controls count as library elements: pass `--detail full`.
-- **The App MCP's app tools need a signed-in Uno Platform account.** Outside an IDE,
-  nothing asks you to sign in: run `uno-devserver login` once.
+- **To check an edit** from the command line, run
+  `uno-devserver app hot-reload-status --file <path>`, then look at the app itself
+  ([Success doesn't mean Reactor rendered](#success-doesnt-mean-reactor-rendered)).
 
 What an edit keeps:
 
-- `UseState`, `UseReducer`, `UseRef` and `UseMemo` keep their values. A record or
-  class stored in a hook that gains or loses a field keeps the values of the fields it
-  still has.
-- Adding, removing or reordering hook calls resets that component's hooks and remounts
-  it, instead of showing an error.
+- `UseState`, `UseReducer`, `UseRef`, `UseMemo` and `UsePersisted` keep their values.
+- A record or class held directly in `UseState`, `UseReducer` or `UseMemo` that gains
+  or loses a field keeps the values of the fields it still has.
+- A hook added after the existing ones starts with its initial value; the others keep
+  theirs.
+- An edit that changes the kind or type of hook at a position resets that component's
+  hooks: its effects clean up and run again, and it re-renders, instead of showing an
+  error.
+- An edit inside a `UseMemo` factory shows once the memo's dependencies change.
 
 ## Doesn't work
 
 - **Rider with the debugger**, on every target. Use Rider without the debugger.
+- **VS Code with the debugger**, on desktop and WebAssembly. Use VS Code without the
+  debugger.
+- **Visual Studio without the debugger**, on Android and iOS. Start the app with the
+  debugger.
 - **`dotnet watch` on WebAssembly, Android and iOS.** Use an IDE or the Uno Dev Server.
-- **Hot Design.** Hot Design, Uno's runtime XAML designer, doesn't support Reactor apps.
-  `UseStudio()`, which turns it on, logs *"Unable to find ServerProcessor via attribute
-  or reflection"*, and its Themes panel stays unavailable. Hot Reload doesn't need it:
-  don't call `UseStudio()`. Apps from `unoapp-reactor` keep the Hot Design package in
-  Debug builds, which does no harm while nothing calls `UseStudio()`. To leave it out,
-  set `<UnoDisableHotDesign>true</UnoDisableHotDesign>`.
+- **Hot Design.** Hot Design, Uno's runtime XAML designer, doesn't support Reactor apps,
+  and Hot Reload doesn't need it: don't call `UseStudio()`. Calling it can log
+  *"Unable to find ServerProcessor via attribute or reflection"*. Apps from
+  `unoapp-reactor` include the Hot Design package in Debug builds, which has no effect
+  on Hot Reload. To leave it out, set `<UnoDisableHotDesign>true</UnoDisableHotDesign>`.
 
 ## Known issues
 
 ### Success doesn't mean Reactor rendered
 
-Uno's **Success** only means Uno's own pass found nothing to replace. An edit whose
-`Render()` throws still reports Success, while the app shows Reactor's error screen.
+Uno's Hot Reload status, as `uno-devserver app hot-reload-status` reports it, says
+**Success** when Uno's own pass found nothing to replace.
+An edit whose `Render()` throws still reports Success, while the app shows Reactor's
+error screen with the exception.
 
-**Workaround:** after an edit, check the UI itself, for example with the App MCP's
-`find`, `assert` or `screenshot`.
+**Workaround:** after an edit, look at the app, or check it with the App MCP's `find`,
+`assert` or `screenshot`.
 
 ### Desktop apps started from the command line refuse every edit
 
 `dotnet run`, or starting the built executable, doesn't set
-`DOTNET_MODIFIABLE_ASSEMBLIES=debug`. The app receives each edit from the Dev Server and
-refuses it: *"The assembly can not be edited or changed"*. This affects every Uno
-desktop app.
+`DOTNET_MODIFIABLE_ASSEMBLIES=debug`, unless a launch profile sets it. The app receives
+each edit from the Dev Server and refuses it, and its log shows *"The assembly can not
+be edited or changed"*. This affects every Uno desktop app.
 
-**Workaround:** set `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in the environment before
-starting the app, or start it from an IDE or with `dotnet watch`.
+**Workaround:** set the variable for the command that starts the app, or start it from
+an IDE or with `dotnet watch`.
+
+```bash
+DOTNET_MODIFIABLE_ASSEMBLIES=debug dotnet run -f net10.0-desktop
+```
+
+```powershell
+$env:DOTNET_MODIFIABLE_ASSEMBLIES = "debug"; dotnet run -f net10.0-desktop
+```
 
 ### `dotnet watch` and the Dev Server both deliver each edit
 
@@ -108,4 +125,4 @@ both in the project and on the build command line
 
 The Dev Server logs *"Analyzer 'Reactor.Wrappers.Generator' failed to load in the
 hot-reload workspace"*, because the generator is built against a newer Roslyn than the
-Dev Server's. Edits to an app still apply.
+Dev Server's. Edits to an app still apply, so no workaround is needed.

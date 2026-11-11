@@ -333,7 +333,7 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 | System backdrop / Mica / DWM effects | ❌ | Not shared. |
 | Multi-monitor / display enumeration | ❌ | `ReactorDisplay.Displays` returns empty. |
 | Window closing guards (`UseClosingGuard`) | ✅ desktop | Backed by Uno's `AppWindow.Closing`. Guards stack; any returning `false` cancels the close, and a throwing guard fail-safes to "cancel" (same as the Windows framework). Honoured on desktop Windows / macOS / Linux. On Android, iOS and wasm the event still fires but cancellation has no effect (per Uno), so the close proceeds. Demoed on the Showcase's second window. |
-| Hot Reload (edit `Render()` while running) | ✅ desktop · wasm · Android · iOS | Debug builds, with no opt-in. `UseState` survives; hook add/remove/reorder recovers by remounting. iOS verified on the Simulator only. Some of Uno's tooling has known issues with Reactor apps: see [Hot Reload](#hot-reload) below. |
+| Hot Reload (edit `Render()` while running) | ✅ desktop · wasm · Android · iOS | Debug builds, with no opt-in. Hook state survives an edit. See [Hot Reload](#hot-reload) below for support by launch method and the known issues. |
 | Declarative caption height (`TitleBar(...).Tall()`, `WindowSpec.TitleBarHeight`) | ✅ desktop | Backed by Uno's `AppWindowTitleBar.PreferredHeightOption` (Standard 32 / Tall 48 / Collapsed 0), which Uno implements for real. The WinUI `TitleBar` *control* is still an Uno stub, so only the caption half is visible today. |
 | Window drag-move, aspect-ratio lock | ❌ | Still no-op stubs — **not yet audited** against Uno's API surface (multi-window, DPI, pickers and closing guards all turned out to be implementable, so these may be too). |
 | Docking (dock manager, tab tear-off, floating windows, splitters) | ❌ | Excluded from the port entirely. |
@@ -348,14 +348,16 @@ Legend: ✅ works · 🟡 partial / unverified · ❌ not supported (compiles, b
 in Debug builds:
 
 - **with `dotnet watch`**, on desktop (see [below](#from-the-command-line));
-- **with the Uno Dev Server**, started by an IDE or with `uno-devserver start`, on
-  every target.
+- **from an IDE**: Visual Studio, VS Code or Rider, as
+  [HOT-RELOAD.md](HOT-RELOAD.md#support) lists by target and debugger;
+- **with the Uno Dev Server** started by `uno-devserver start`, on every target.
 
 Nothing has to be opted into. There is no `HotReload` UnoFeature, and `.UseStudio()`
 isn't needed: it turns on Hot Design, which doesn't support Reactor apps.
 
 The known issue you're most likely to hit: **a desktop app started with `dotnet run`
-refuses every edit** without `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment.
+refuses every edit** without `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment
+([commands](HOT-RELOAD.md#desktop-apps-started-from-the-command-line-refuse-every-edit)).
 IDEs and `dotnet watch` set it.
 
 [HOT-RELOAD.md](HOT-RELOAD.md) has support by launch method and IDE, what doesn't
@@ -376,20 +378,20 @@ override restores the head and `Reactor.Uno` for desktop only, so run a plain
 `dotnet restore` before building another head with `--no-restore`. The
 `Found project reference without a matching metadata reference` warning is benign.
 
-`dotnet watch -f net10.0-desktop` also works on the samples as they ship (SDK
-10.0.401), but it loads the head once for every target it lists (11 projects,
-against 5 with the override), and that has failed every edit with
-`CS0518: Predefined type '…' is not defined or imported`: on a head listing two or
-three of the four targets, with the samples' earlier `Program.cs`. The override
-has worked in every case tried. Without either, `dotnet watch` asks which target
-to run (`--non-interactive` stops instead).
+`dotnet watch -f net10.0-desktop` loads the head once for every target it lists,
+and can then fail every edit with
+`CS0518: Predefined type '…' is not defined or imported`. Use the override instead.
+Without either, `dotnet watch` asks which target to run (`--non-interactive` stops
+instead).
 
 **With the Uno Dev Server instead**, which every target can use: start it with
 `uno-devserver start` from a folder holding a solution, *before* building, since it
 writes its port into the project's `.csproj.user` and the build stamps that port on
 the app. Apps made from the template have their solution next to the project. On
-desktop, start the app with `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment.
-The samples README has the [commands](../../samples/Uno/README.md#ios-simulator).
+desktop, start the app with `DOTNET_MODIFIABLE_ASSEMBLIES=debug` in its environment
+([commands](HOT-RELOAD.md#desktop-apps-started-from-the-command-line-refuse-every-edit)).
+The samples README has the commands for each
+[target](../../samples/Uno/README.md#ios-simulator).
 
 ## Known limitations / notes
 
@@ -421,8 +423,8 @@ The samples README has the [commands](../../samples/Uno/README.md#ios-simulator)
 - **Don't name a file-based app's root component `App`** — Uno.Sdk generates an
   `App` type for single-project EXEs, which would clash. Use any other name
   (`CounterApp`, `MyApp`, …); `ReactorApp.Run<T>` doesn't care.
-- **Hot Reload** doesn't work with Rider's debugger or with Hot Design.
-  [HOT-RELOAD.md](HOT-RELOAD.md#known-issues) lists the known issues and their
+- **Hot Reload** doesn't work in some setups, such as Rider with the debugger.
+  [HOT-RELOAD.md](HOT-RELOAD.md) lists them, and the known issues with their
   workarounds.
 - See the **Feature support on Uno Skia** matrix above for what works, what's
   partial, and what's unsupported. The unsupported/partial rows surface as
