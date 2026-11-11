@@ -7,6 +7,9 @@ section.
 
 ## Support
 
+Reactor on Uno Platform is experimental. Hot Reload works, but it isn't fully tested
+yet, and its support will improve over time.
+
 Hot Reload needs a Debug build. A Release build applies no edit.
 
 | How the app is started | Desktop | WebAssembly | Android, iOS |
