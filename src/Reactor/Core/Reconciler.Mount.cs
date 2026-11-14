@@ -46,7 +46,7 @@ public sealed partial class Reconciler
 
         // A direct Mount from outside is an outermost frame for render-error propagation
         // (issue #1291), like a top-level Reconcile; recursive mounts just count.
-        using var entryFrame = EnterFrame();
+        using var entryFrame = EnterFrame(Diagnostics.ReactorPerfTrace.ReconcileEntries.Mount, element);
         // Where this mount's completed roots start, while an ErrorBoundary records them.
         int boundaryRootsStart = _boundaryMountRoots?.Count ?? -1;
 
@@ -912,6 +912,8 @@ public sealed partial class Reconciler
         };
         _componentNodes[wrapper] = node;
         _boundaryMountJournal?.Add(wrapper);
+        // Perf span: Render(), effects and the subtree mount (spans close on every exit).
+        using var perfSpan = BeginPerfComponentSpan(node, compElement, Diagnostics.ComponentRenderTrace.Reasons.Mount);
 
         // Pass the component's own wrapped rerender to children so that child state
         // changes propagate SelfTriggered up through all component ancestors.
@@ -997,6 +999,8 @@ public sealed partial class Reconciler
         };
         _componentNodes[wrapper] = node;
         _boundaryMountJournal?.Add(wrapper);
+        // Perf span: Render(), effects and the subtree mount (spans close on every exit).
+        using var perfSpan = BeginPerfComponentSpan(node, funcElement, Diagnostics.ComponentRenderTrace.Reasons.Mount);
 
         // Pass the component's own wrapped rerender to children so that child state
         // changes propagate SelfTriggered up through all component ancestors.
@@ -1081,6 +1085,8 @@ public sealed partial class Reconciler
         };
         _componentNodes[wrapper] = node;
         _boundaryMountJournal?.Add(wrapper);
+        // Perf span: Render(), effects and the subtree mount (spans close on every exit).
+        using var perfSpan = BeginPerfComponentSpan(node, memoElement, Diagnostics.ComponentRenderTrace.Reasons.Mount);
 
         // Pass the component's own wrapped rerender to children so that child state
         // changes propagate SelfTriggered up through all component ancestors.
