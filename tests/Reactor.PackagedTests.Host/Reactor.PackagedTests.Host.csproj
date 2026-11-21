@@ -56,6 +56,7 @@
              Exclude="..\Reactor.AppTests.Host\obj\**\*.cs;..\Reactor.AppTests.Host\bin\**\*.cs"
              Link="Host\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\_shared\BuiltInHandlerBootstrap.cs" Link="BuiltInHandlerBootstrap.cs" />
+    <Compile Include="..\_shared\EtwPrivateCapture.cs" Link="EtwPrivateCapture.cs" />
     <!-- Shared with Reactor.PackagedTests so the deployment's derived identity and the
          in-host identity guard's expectation are computed by one implementation. -->
     <Compile Include="..\_shared\FinalPath.cs" Link="FinalPath.cs" />
@@ -97,5 +98,7 @@
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Reactor.Wrappers.Abstractions\Reactor.Wrappers.Abstractions.csproj" />
   </ItemGroup>
+
+  <Import Project="..\Reactor.AppTests.Host\ToolkitInputSamples.props" />
 
 </Project>
