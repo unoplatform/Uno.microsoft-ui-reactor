@@ -224,6 +224,16 @@ formatted output you read `RichEditBox.Document` through `.Set(...)` and
 serialize the text range yourself. Single-line text input belongs in
 [`TextBox`](forms.md), not here.
 
+The document stores every line break as `\r`, so the text the handler
+reports uses `\r` between paragraphs: `"a\nb"` written from state comes
+back as `"a\rb"` after the first edit. Reactor treats `\r\n`, `\n` and
+`\r` as the same break when it compares state with the document, so
+storing the reported text back into state doesn't rewrite the document.
+Trailing breaks are part of the text: `"abc\n"` and `"abc"` are different
+values, and pressing Enter at the end reports `"abc\r"`. Only the
+document's own final paragraph mark, which `Document.GetText` always
+appends, is left out.
+
 | Fluent | Effect |
 |---|---|
 | `.AcceptsReturn(bool)` | Enter starts a new paragraph instead of submitting. |
@@ -244,7 +254,7 @@ Markdown(string markdown, MarkdownOptions options)
 
 > **Package note.** `Markdown(...)` ships in the optional
 > `Microsoft.UI.Reactor.Advanced` package (spec 062 §7). Add a
-> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.17" />` and import
+> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.18" />` and import
 > its factories alongside the core ones:
 > `using static Microsoft.UI.Reactor.Advanced.Factories;`. Both overloads
 > return the base `Element`, and `MarkdownOptions` stays in
@@ -333,6 +343,17 @@ than guessing meaning from `Grid`/`StackPanel` shapes. `Surface(text, content,
 separatorAfter: "\n")` supplies exact **visible plain text**, never Markdown
 or HTML source. List markers have no separator before their content; table
 cells use tabs and rows use newlines. No final separator is copied.
+
+With a mouse, click to place the caret, Shift+click to extend selection,
+double-click to select a word (including trailing spaces), and triple-click
+to select a text surface such as a paragraph, table cell, or code block.
+Triple-click excludes the separator between surfaces; dragging can extend
+selection by whole words or surfaces and includes any separators crossed.
+An ordinary click activates a link. Dragging from a link selects text instead,
+including on custom `LinkBuilder` buttons that use the default release click
+mode. A primary click outside the message's text clears its highlight and collapses the
+text range without consuming the new click. Keyboard link activation stays native.
+
 Surface wrappers own outer margins, sizing, alignment and Grid/Canvas/Flex
 placement; these are lifted off the inner element and applied exactly once.
 Inner padding and presentation styling remain on the content. Apps can normalize
