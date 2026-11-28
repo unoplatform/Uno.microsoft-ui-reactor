@@ -13,7 +13,7 @@ namespace Microsoft.UI.Reactor.Docking;
 //    docs/specs/045-docking-windows-design.md §4.3 — committed surface
 //    docs/specs/tasks/045-docking-windows-implementation.md §1.3
 //
-//  These types live in Reactor.dll (the core) so that the Phase 2 native
+//  These types live in Microsoft.UI.Reactor.dll (the core) so that the Phase 2 native
 //  rewrite — which has no XAML dependency — can extend them in place when
 //  the Reactor.Docking.Xaml wrapper assembly is removed at §2.19.
 // ════════════════════════════════════════════════════════════════════════
@@ -38,10 +38,12 @@ namespace Microsoft.UI.Reactor.Docking;
 /// </para>
 ///
 /// <para>
-/// Persistence: when <see cref="PersistenceId"/> is set, the layout JSON is
-/// stored under <c>WindowPersistedScope["docking:&lt;PersistenceId&gt;"]</c>
-/// (spec 036 §8). On mount, persisted layout is restored as a fallback when
-/// the declarative <see cref="Layout"/> is null.
+/// Persistence: the docking host does not save or restore layouts on its own,
+/// and <see cref="PersistenceId"/> is not read today. To keep a layout across
+/// process restarts, serialize it with <see cref="Persistence.DockLayoutSerializer.Save"/>,
+/// store the JSON in storage your app owns, and on the next start pass the tree
+/// from <see cref="Persistence.DockLayoutSerializer.Load(string)"/> as
+/// <see cref="Layout"/>.
 /// </para>
 /// </remarks>
 public sealed record DockManager : Element
@@ -99,8 +101,9 @@ public sealed record DockManager : Element
     public IDockLayoutStrategy? LayoutStrategy { get; init; }
 
     /// <summary>
-    /// Stable identifier used to scope persisted layout JSON inside the host
-    /// <c>WindowPersistedScope</c>. Required to survive process restarts.
+    /// Identifier reserved for scoping a persisted layout. The docking host does not
+    /// read it yet, so setting it does not save or restore anything; use
+    /// <see cref="Persistence.DockLayoutSerializer"/> to keep a layout across restarts.
     /// </summary>
     public string? PersistenceId { get; init; }
 

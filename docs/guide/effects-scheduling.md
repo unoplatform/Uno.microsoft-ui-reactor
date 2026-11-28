@@ -1,4 +1,8 @@
 
+# Effects Scheduling
+
+This page is about when `UseEffect` fires and why.
+
 The thing that trips up most readers in Microsoft.UI.Reactor (Reactor) is the order. `UseEffect` does
 not run during render — it runs *after* the reconciler has finished
 committing the new tree to WinUI, on the UI thread, in hook-declaration
@@ -14,14 +18,11 @@ when your effect body runs, the WinUI controls you described in this
 render are already mounted and visible, and the previous round's
 cleanup has already run.
 
-# Effects Scheduling
-
-This page is about when [`UseEffect`](hooks.md) fires and why.
-Surface-level usage is on the [Effects](effects.md) page; the
-async-resource pipeline — `UseResource`, `UseInfiniteResource`,
-`Pending`, `QueryCache` — has its own deep walk in the
-[async-system reference](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/reference/async-system.md). What
-follows is the render-loop view of the same callbacks.
+Surface-level usage is on the [Effects](effects.md) page; the async-resource
+pipeline — `UseResource`, `UseInfiniteResource`, `Pending`, `QueryCache` —
+has its own deep walk in the [async-system
+reference](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/reference/async-system.md).
+What follows is the render-loop view of the same callbacks.
 
 ## The render → commit → flush sequence
 
@@ -285,6 +286,11 @@ UseEffect(() => {
 ```csharp
 private Action<T> MakeStateSetter<T>(ValueHookState<T> h)
 {
+    // Keep the captured argument in a separate frame so inline/locked calls
+    // do not allocate a closure before deciding whether marshaling is needed.
+    bool MarshalSetter(T newValue)
+        => MarshalIfOffUIThread("UseState", () => Setter(newValue));
+
     void Setter(T newValue)
     {
         bool changed;
@@ -299,17 +305,19 @@ private Action<T> MakeStateSetter<T>(ValueHookState<T> h)
                     global::System.Diagnostics.Tracing.EventLevel.Verbose,
                     Diagnostics.ReactorEventSource.Keywords.State))
                 Diagnostics.ReactorEventSource.Log.StateChange("UseState", typeof(T).Name, changed);
+            ReportPerfStateChange("UseState", changed);
             if (changed) _requestRerender?.Invoke();
         }
         else
         {
-            if (MarshalIfOffUIThread("UseState", () => Setter(newValue))) return;
+            if (Environment.CurrentManagedThreadId != _uiThreadId && MarshalSetter(newValue)) return;
             changed = !EqualityComparer<T>.Default.Equals(h.Value, newValue);
             if (changed) h.Value = newValue;
             if (Diagnostics.ReactorEventSource.Log.IsEnabled(
                     global::System.Diagnostics.Tracing.EventLevel.Verbose,
                     Diagnostics.ReactorEventSource.Keywords.State))
                 Diagnostics.ReactorEventSource.Log.StateChange("UseState", typeof(T).Name, changed);
+            ReportPerfStateChange("UseState", changed);
             if (changed) _requestRerender?.Invoke();
         }
     }

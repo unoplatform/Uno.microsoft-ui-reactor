@@ -1,4 +1,8 @@
-> **WinUI reference:** For the full property surface and design guidance, see [Text Controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
+
+# Text and Media
+
+This page covers display text, inline rich text, rich-text editing, and
+media controls in Reactor.
 
 Text and media controls are the display, rich-text, and media half of the Microsoft.UI.Reactor (Reactor)
 catalog: surfaces that show content the user is reading, watching, or
@@ -17,12 +21,11 @@ toward composition: rich layouts come from many small text elements in a
 manually-tuned `Inline` records. Skim the modifier tables before the
 prose, then jump to the control you need.
 
-# Text and Media
-
-This page covers display text, inline rich text, rich-text editing, and media controls in
-Reactor. For single-line input controls (`TextBox`, `PasswordBox`),
-see [Forms](forms.md). For data-bound collections, see
+For single-line input controls (`TextBox`, `PasswordBox`), see
+[Forms](forms.md). For data-bound collections, see
 [Collections](collections.md).
+
+> **WinUI reference:** For the full property surface and design guidance, see [Text Controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
 ## Text variants
 
@@ -176,6 +179,11 @@ Modifiers — `.MaxLines`, `.LineHeight`, `.TextAlignment`,
 not get the fast-path renderer, so prefer plain `TextBlock` for static
 text.
 
+Use `RichTextBlock("Hello").Foreground(Theme.PrimaryText)` to set the block's
+default text brush. WinUI resolves the [theme token](theming-tokens.md) for the
+block's effective theme and updates the brush when that theme changes. An
+inline run can still supply its own foreground.
+
 > **Caveat:** Embedding live controls with `InlineUI(...)` and then mutating a `Run` in
 > the same paragraph used to scroll the surrounding `ScrollViewer`/`ScrollView`
 > to the top: WinUI's text engine re-measures the paragraph from scratch and
@@ -224,6 +232,16 @@ formatted output you read `RichEditBox.Document` through `.Set(...)` and
 serialize the text range yourself. Single-line text input belongs in
 [`TextBox`](forms.md), not here.
 
+The document stores every line break as `\r`, so the text the handler
+reports uses `\r` between paragraphs: `"a\nb"` written from state comes
+back as `"a\rb"` after the first edit. Reactor treats `\r\n`, `\n` and
+`\r` as the same break when it compares state with the document, so
+storing the reported text back into state doesn't rewrite the document.
+Trailing breaks are part of the text: `"abc\n"` and `"abc"` are different
+values, and pressing Enter at the end reports `"abc\r"`. Only the
+document's own final paragraph mark, which `Document.GetText` always
+appends, is left out.
+
 | Fluent | Effect |
 |---|---|
 | `.AcceptsReturn(bool)` | Enter starts a new paragraph instead of submitting. |
@@ -244,7 +262,7 @@ Markdown(string markdown, MarkdownOptions options)
 
 > **Package note.** `Markdown(...)` ships in the optional
 > `Microsoft.UI.Reactor.Advanced` package (spec 062 §7). Add a
-> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.17" />` and import
+> `<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.18" />` and import
 > its factories alongside the core ones:
 > `using static Microsoft.UI.Reactor.Advanced.Factories;`. Both overloads
 > return the base `Element`, and `MarkdownOptions` stays in
@@ -333,6 +351,17 @@ than guessing meaning from `Grid`/`StackPanel` shapes. `Surface(text, content,
 separatorAfter: "\n")` supplies exact **visible plain text**, never Markdown
 or HTML source. List markers have no separator before their content; table
 cells use tabs and rows use newlines. No final separator is copied.
+
+With a mouse, click to place the caret, Shift+click to extend selection,
+double-click to select a word (including trailing spaces), and triple-click
+to select a text surface such as a paragraph, table cell, or code block.
+Triple-click excludes the separator between surfaces; dragging can extend
+selection by whole words or surfaces and includes any separators crossed.
+An ordinary click activates a link. Dragging from a link selects text instead,
+including on custom `LinkBuilder` buttons that use the default release click
+mode. A primary click outside the message's text clears its highlight and collapses the
+text range without consuming the new click. Keyboard link activation stays native.
+
 Surface wrappers own outer margins, sizing, alignment and Grid/Canvas/Flex
 placement; these are lifted off the inner element and applied exactly once.
 Inner padding and presentation styling remain on the content. Apps can normalize
@@ -354,10 +383,19 @@ The scope supports mouse drag (touch/pen remain available for native panning),
 Shift+arrow/PageUp/PageDown, Ctrl+A and
 Ctrl+C; keyboard navigation includes fully clipped blocks. Modern `ScrollView`
 (including the internal one in `ItemsView`) and legacy `ScrollViewer` provide
-clipping, bring-into-view and drag autoscroll. Offsets are UTF-16; horizontal
+clipping, bring-into-view and drag autoscroll. Drag autoscroll starts beyond the
+visible scroll viewport's top or bottom, not at an individual message boundary,
+and stops when the pointer returns inside the viewport or the drag ends.
+Offsets are UTF-16; horizontal
 caret movement follows grapheme boundaries. Streaming updates preserve
 selection endpoints against surviving surface identities where possible.
 The scope exposes UIA TextPattern with range-scoped embedded-control children.
+
+Idle scopes do not poll window-wide layout updates. Text, membership and
+geometry refresh on selection input, copy or automation access; only an active
+selection, drag or focused caret tracks layout continuously. This keeps unrelated
+composer typing independent of the number of idle message scopes. Keep using one
+scope per message, including in an `ItemsView`; no shared controller is required.
 
 `OnCopyResult` is an optional `Action<string, bool>` **notification**, not a
 copy delegate. Reactor calls it after its single clipboard-write attempt.

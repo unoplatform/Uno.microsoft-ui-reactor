@@ -7,6 +7,7 @@ namespace Microsoft.UI.Reactor.Animation;
 /// Values for a single interaction state (PointerOver, Pressed, Focused).
 /// Only visual/brush properties — no layout properties (Width, Margin, etc.).
 /// The record IS the boundary: adding a field is a deliberate API decision.
+/// <c>Rotation</c> is in degrees, clockwise, like <c>.Rotation()</c>.
 /// </summary>
 public record InteractionStateValues(
     // Compositor-accelerated (zero cost during interaction)
@@ -18,7 +19,27 @@ public record InteractionStateValues(
     // Direct property set (pre-cached brush swap, ~1us)
     Brush? Background = null,
     Brush? Foreground = null,
-    Brush? BorderBrush = null);
+    Brush? BorderBrush = null)
+{
+    /// <summary>
+    /// Compares solid brushes by color and opacity, so brushes rebuilt on every render compare
+    /// equal (issue #1702). Other brushes compare by reference.
+    /// </summary>
+    /// <remarks>Reads the brushes, so call it on the UI thread that created them.</remarks>
+    public virtual bool Equals(InteractionStateValues? other)
+        => ReferenceEquals(this, other)
+            || (other is not null && EqualityContract == other.EqualityContract
+                && Opacity == other.Opacity && Scale == other.Scale && ScaleV == other.ScaleV
+                && Translation == other.Translation && Rotation == other.Rotation
+                && BrushHelper.BrushesEqual(Background, other.Background)
+                && BrushHelper.BrushesEqual(Foreground, other.Foreground)
+                && BrushHelper.BrushesEqual(BorderBrush, other.BorderBrush));
+
+    /// <summary>Hashes the brushes' presence only, without reading the WinUI brushes.</summary>
+    public override int GetHashCode()
+        => HashCode.Combine(EqualityContract, Opacity, Scale, ScaleV, Translation, Rotation,
+            HashCode.Combine(Background is null, Foreground is null, BorderBrush is null));
+}
 
 /// <summary>
 /// Configuration for the .InteractionStates() modifier.
@@ -40,6 +61,7 @@ public class InteractionStatesBuilder
     private InteractionStateValues? _pressed;
     private InteractionStateValues? _focused;
 
+    /// <summary>Values while the pointer is over the element. <c>rotation</c> is in degrees.</summary>
     public InteractionStatesBuilder PointerOver(
         float? opacity = null, float? scale = null, Vector3? scaleV = null,
         Vector3? translation = null, float? rotation = null,
@@ -49,6 +71,7 @@ public class InteractionStatesBuilder
         return this;
     }
 
+    /// <summary>Values while the element is pressed; unset values inherit from <see cref="PointerOver"/>. <c>rotation</c> is in degrees.</summary>
     public InteractionStatesBuilder Pressed(
         float? opacity = null, float? scale = null, Vector3? scaleV = null,
         Vector3? translation = null, float? rotation = null,
@@ -58,6 +81,7 @@ public class InteractionStatesBuilder
         return this;
     }
 
+    /// <summary>Values while the element has focus. <c>rotation</c> is in degrees.</summary>
     public InteractionStatesBuilder Focused(
         float? opacity = null, float? scale = null, Vector3? scaleV = null,
         Vector3? translation = null, float? rotation = null,

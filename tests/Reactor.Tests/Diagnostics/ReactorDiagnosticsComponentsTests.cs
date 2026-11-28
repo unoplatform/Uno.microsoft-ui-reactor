@@ -718,6 +718,30 @@ public class ReactorDiagnosticsComponentsTests
         Assert.DoesNotContain(onBorder, p => p.Modifier == "IsEnabled");
     }
 
+    [Theory]
+    [InlineData(typeof(WinUI.Grid), "Grid")]
+    [InlineData(typeof(WinUI.StackPanel), "StackPanel")]
+    [InlineData(typeof(WinUI.RelativePanel), "RelativePanel")]
+    public void AppliedModifierMap_ResolvesPanelBorderOwners(Type controlType, string owner)
+    {
+        var thickness = new Thickness(2);
+        var inline = new Thickness(9);
+        var applied = AppliedModifierMap.Describe(
+            new ElementModifiers { BorderThickness = thickness, BorderInlineStart = inline }, controlType);
+
+        Assert.Contains(new AppliedModifier("BorderThickness", owner + ".BorderThickness", thickness), applied);
+        Assert.Contains(new AppliedModifier("BorderInlineStart", owner + ".BorderThickness", inline), applied);
+    }
+
+    [Theory]
+    [InlineData(typeof(WinUI.RichTextBlock), "RichTextBlock.Foreground")]
+    [InlineData(typeof(WinUI.AnimatedIcon), "IconElement.Foreground")]
+    public void AppliedModifierMap_ResolvesForegroundOwners(Type controlType, string property)
+    {
+        var foreground = Assert.Single(AppliedModifierMap.Entries, entry => entry.Modifier == "Foreground");
+        Assert.Equal(property, foreground.Target(controlType));
+    }
+
     [Fact]
     public void AppliedProperty_ValuesAreText()
     {
@@ -784,7 +808,7 @@ public class ReactorDiagnosticsComponentsTests
         };
 
         Assert.Equal(
-            new[] { ("Scale", "UIElement.Scale"), ("Rotation", "UIElement.Rotation"), ("Translation", "UIElement.Translation"), ("CenterPoint", "UIElement.CenterPoint") },
+            new[] { ("Scale", "Visual.Scale"), ("Rotation", "Visual.RotationAngle"), ("Translation", "Visual.Translation"), ("CenterPoint", "Visual.CenterPoint") },
             AppliedModifierMap.Describe(m, typeof(WinUI.TextBlock)).Select(p => (p.Modifier, p.Property)));
     }
 
@@ -805,6 +829,22 @@ public class ReactorDiagnosticsComponentsTests
         Assert.DoesNotContain(merged, p => p.Modifier == "DefaultAutomationName");
     }
 
+    [Fact]
+    public void DescribeChain_KeepsBothPivotContributors_AcrossDecoratorLevels()
+    {
+        // Spec 066 §8.1: the pivot is size × origin + the CenterPoint offset, so an outer origin
+        // doesn't replace an inner CenterPoint (or the reverse); a later same modifier still does.
+        var crossLevel = Flyout(Button("Go").CenterPoint(new global::System.Numerics.Vector3(10, 0, 0)), TextBlock("menu"))
+            .TransformOrigin(0.5f, 0.5f);
+        var sameModifier = Flyout(Button("Go").TransformOrigin(0, 0), TextBlock("menu")).TransformOrigin(1, 1);
+
+        static string[] Pivot(Element e) => AppliedModifierMap
+            .DescribeChain(Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap.DecoratorChain(e), typeof(WinUI.Button), null)
+            .Where(p => p.Property == "Visual.CenterPoint").Select(p => p.Modifier).ToArray();
+
+        Assert.Equal(new[] { "CenterPoint", "TransformOrigin" }, Pivot(crossLevel));
+        Assert.Equal(new[] { "TransformOrigin" }, Pivot(sameModifier));
+    }
     [Fact]
     public void DescribeChain_KeepsEveryContributorToAComposedProperty()
     {
@@ -859,8 +899,11 @@ public class ReactorDiagnosticsComponentsTests
 
     /// <summary>
     /// Members of <see cref="ElementModifiers"/> that are deliberately not in the map
-    /// because applying them is not a dependency-property write. A new modifier must be
-    /// added either to <see cref="AppliedModifierMap.Entries"/> or here.
+    /// because applying them is not a dependency-property write. <see cref="AppliedModifierMap.Entries"/>
+    /// is generated (spec 067 layer 2), so a new modifier that writes a property gets an Apply
+    /// receiver or <c>.Report(target: …)</c> on its <c>ModifierSchema</c> slot, a place in
+    /// <c>ModifierSchema.AppliedReportOrder</c>, and a run of <c>tools/Reactor.ModifierGen</c>;
+    /// one that doesn't is listed here.
     /// </summary>
     private static readonly HashSet<string> NotPropertyWrites = new(StringComparer.Ordinal)
     {
@@ -891,7 +934,10 @@ public class ReactorDiagnosticsComponentsTests
             .ToList();
 
         Assert.True(unaccounted.Count == 0,
-            "Modifiers neither mapped in AppliedModifierMap nor listed in NotPropertyWrites: " + string.Join(", ", unaccounted));
+            "Modifiers neither mapped in AppliedModifierMap nor listed in NotPropertyWrites: " + string.Join(", ", unaccounted)
+            + ". Declare an Apply receiver or .Report(target: …) on the ModifierSchema slot, add it to "
+            + "ModifierSchema.AppliedReportOrder and run `dotnet run --project tools/Reactor.ModifierGen`, "
+            + "or list it in NotPropertyWrites.");
 
         var stale = mapped.Where(n => n.StartsWith("Accessibility.", StringComparison.Ordinal)
                 ? typeof(AccessibilityModifiers).GetProperty(n["Accessibility.".Length..]) is null

@@ -1,4 +1,11 @@
 
+# Data System
+
+Reactor's data system provides a virtualized `DataGrid<T>` backed by a
+pluggable data source abstraction. You define columns (or auto-generate
+them), connect a data source, and the grid handles sorting, filtering,
+searching, selection, and inline editing.
+
 Microsoft.UI.Reactor (Reactor)'s `DataGrid<T>` is a virtualized table that renders rows lazily from an
 `IDataSource<T>`. The source is the contract, not the data: it returns
 pages keyed by sort, filter, and search state, declares its
@@ -16,13 +23,6 @@ swap turns it live; a custom `IDataSource<T>` against your REST or
 GraphQL endpoint turns it into a server-driven grid without changing
 the column code. Read the source section first — every other section
 on this page is about how the grid asks more of it.
-
-# Data System
-
-Reactor's data system provides a virtualized `DataGrid<T>` backed by a
-pluggable data source abstraction. You define columns (or auto-generate
-them), connect a data source, and the grid handles sorting, filtering,
-searching, selection, and inline editing.
 
 ## Data Sources
 
@@ -105,7 +105,7 @@ optional `Microsoft.UI.Reactor.Advanced` package (spec 062 §7). Add the
 package reference and a second `using static`:
 
 ```xml
-<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.17" />
+<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.18" />
 ```
 
 ```csharp

@@ -1,4 +1,9 @@
 
+# Reactivity Model
+
+This page is the *why* behind the hooks surface. If you've come from XAML
+and `INotifyPropertyChanged`, the change of model is larger than the syntax.
+
 Reactivity in Microsoft.UI.Reactor (Reactor) is one direction and one verb: a setter writes a
 slot, the framework asks the owning component to describe the next
 tree, the reconciler diffs and commits. There is no observer graph
@@ -12,13 +17,9 @@ happens — the render loop never finds out. This is the same trade-off
 React made: the model is small and predictable, but every reactive
 edge is something you typed.
 
-# Reactivity Model
-
-This page is the *why* behind the [Hooks](hooks.md) surface. If you've
-come from XAML and `INotifyPropertyChanged`, the change of model is
-larger than the syntax. If you've come from SwiftUI's `@Observable` or
-Vue's reactivity, the change is smaller, but Reactor is more explicit
-than either.
+If you've come from SwiftUI's `@Observable` or Vue's reactivity, the change
+is smaller, but Reactor is more explicit than either. For the API itself,
+see [Hooks](hooks.md).
 
 ## What flows through the render loop
 
@@ -70,6 +71,11 @@ component's `Render()` runs and the slot read returns the new value.
 ```csharp
 private Action<T> MakeStateSetter<T>(ValueHookState<T> h)
 {
+    // Keep the captured argument in a separate frame so inline/locked calls
+    // do not allocate a closure before deciding whether marshaling is needed.
+    bool MarshalSetter(T newValue)
+        => MarshalIfOffUIThread("UseState", () => Setter(newValue));
+
     void Setter(T newValue)
     {
         bool changed;
@@ -84,17 +90,19 @@ private Action<T> MakeStateSetter<T>(ValueHookState<T> h)
                     global::System.Diagnostics.Tracing.EventLevel.Verbose,
                     Diagnostics.ReactorEventSource.Keywords.State))
                 Diagnostics.ReactorEventSource.Log.StateChange("UseState", typeof(T).Name, changed);
+            ReportPerfStateChange("UseState", changed);
             if (changed) _requestRerender?.Invoke();
         }
         else
         {
-            if (MarshalIfOffUIThread("UseState", () => Setter(newValue))) return;
+            if (Environment.CurrentManagedThreadId != _uiThreadId && MarshalSetter(newValue)) return;
             changed = !EqualityComparer<T>.Default.Equals(h.Value, newValue);
             if (changed) h.Value = newValue;
             if (Diagnostics.ReactorEventSource.Log.IsEnabled(
                     global::System.Diagnostics.Tracing.EventLevel.Verbose,
                     Diagnostics.ReactorEventSource.Keywords.State))
                 Diagnostics.ReactorEventSource.Log.StateChange("UseState", typeof(T).Name, changed);
+            ReportPerfStateChange("UseState", changed);
             if (changed) _requestRerender?.Invoke();
         }
     }
@@ -133,7 +141,7 @@ A few details matter for understanding the model:
 
 XAML reactivity hangs off `INotifyPropertyChanged`. A view model
 implements `INotifyPropertyChanged`, properties raise `PropertyChanged`
-on assignment, [`BindingExpression`](reactor-vs-xaml.md) instances
+on assignment, [`BindingExpression`](xaml-developers.md#bindings-become-state) instances
 listen and pull the new value. The model is "the property is the
 signal" — every property declared on a VM is a potential reactive
 edge, with a runtime cost (the event), an ergonomic cost (you write
@@ -267,6 +275,11 @@ change.
 ```csharp
 private Action<T> MakeStateSetter<T>(ValueHookState<T> h)
 {
+    // Keep the captured argument in a separate frame so inline/locked calls
+    // do not allocate a closure before deciding whether marshaling is needed.
+    bool MarshalSetter(T newValue)
+        => MarshalIfOffUIThread("UseState", () => Setter(newValue));
+
     void Setter(T newValue)
     {
         bool changed;
@@ -281,17 +294,19 @@ private Action<T> MakeStateSetter<T>(ValueHookState<T> h)
                     global::System.Diagnostics.Tracing.EventLevel.Verbose,
                     Diagnostics.ReactorEventSource.Keywords.State))
                 Diagnostics.ReactorEventSource.Log.StateChange("UseState", typeof(T).Name, changed);
+            ReportPerfStateChange("UseState", changed);
             if (changed) _requestRerender?.Invoke();
         }
         else
         {
-            if (MarshalIfOffUIThread("UseState", () => Setter(newValue))) return;
+            if (Environment.CurrentManagedThreadId != _uiThreadId && MarshalSetter(newValue)) return;
             changed = !EqualityComparer<T>.Default.Equals(h.Value, newValue);
             if (changed) h.Value = newValue;
             if (Diagnostics.ReactorEventSource.Log.IsEnabled(
                     global::System.Diagnostics.Tracing.EventLevel.Verbose,
                     Diagnostics.ReactorEventSource.Keywords.State))
                 Diagnostics.ReactorEventSource.Log.StateChange("UseState", typeof(T).Name, changed);
+            ReportPerfStateChange("UseState", changed);
             if (changed) _requestRerender?.Invoke();
         }
     }
@@ -425,6 +440,6 @@ in `UseState` / `UseReducer` so the slot table tracks it.
 
 - **[Architecture Overview](architecture-overview.md)** — Previous: the full render loop.
 - **[Hooks Internals](hooks-internals.md)** — Next: how the slot table is laid out.
-- **[Reactor vs XAML](reactor-vs-xaml.md)** — Same model contrasted with XAML's binding / INPC.
+- **[Coming from XAML](xaml-developers.md)** — Same model contrasted with XAML's binding / INPC.
 - **[Reconciliation](reconciliation.md)** — What the diff phase does once `Render()` returns.
 - **[Effects Scheduling](effects-scheduling.md)** — When effects fire relative to the setter / render cycle.

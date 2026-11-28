@@ -6,7 +6,7 @@ namespace Microsoft.UI.Reactor.Tests;
 /// xUnit collection marker for tests that replace process-wide console or trace
 /// state. These tests must not overlap any other collection because
 /// <see cref="Console.Out"/>, <see cref="Console.Error"/>, and
-/// <see cref="System.Diagnostics.Trace.Listeners"/> are global to the test process.
+/// <see cref="global::System.Diagnostics.Trace.Listeners"/> are global to the test process.
 /// </summary>
 [CollectionDefinition("ConsoleTests", DisableParallelization = true)]
 public sealed class ConsoleTestsCollection { }
@@ -128,3 +128,10 @@ public sealed class RenderErrorGlobalsCollection { }
 /// </summary>
 [CollectionDefinition("DataSourceDiagnostics", DisableParallelization = true)]
 public sealed class DataSourceDiagnosticsCollection { }
+
+/// <summary>
+/// Isolates tests that replace <see cref="global::System.Net.Http.HttpClient.DefaultProxy"/>.
+/// It is process-wide, so any other test's <c>HttpClient</c> would pick up the test proxy.
+/// </summary>
+[CollectionDefinition("HttpDefaultProxy", DisableParallelization = true)]
+public sealed class HttpDefaultProxyCollection { }

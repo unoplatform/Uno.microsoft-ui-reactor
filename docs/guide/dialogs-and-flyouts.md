@@ -1,4 +1,8 @@
-> **WinUI reference:** For the full property surface and design guidance, see [Dialogs And Flyouts](https://learn.microsoft.com/en-us/windows/apps/design/controls/dialogs-and-flyouts/).
+
+# Dialogs and Flyouts
+
+ContentDialog, MenuFlyout, CommandBarFlyout and Popup: when to reach for
+each one, and how to drive them from component state.
 
 Dialog and flyout surfaces interrupt the user. That makes them the most
 costly UI primitive in the app's attention budget — every modal dialog
@@ -16,8 +20,6 @@ covers. Pair every dialog with a corresponding entry in
 [commanding.md](commanding.md) — the same `Command` should usually back
 the trigger (button or menu) and the dialog's primary action.
 
-# Dialogs and Flyouts
-
 Four primitives sit on this page. Pick by shape, not by aesthetic:
 
 | Control | Shape | Dismiss | Use when |
@@ -26,6 +28,8 @@ Four primitives sit on this page. Pick by shape, not by aesthetic:
 | `MenuFlyout` | Pop-up menu next to a target | Outside click / Esc | Right-click or chevron menu of discrete actions. |
 | `CommandBarFlyout` | Mini-toolbar next to a target | Outside click / Esc | Selection context — "what to do with this thing". |
 | `Popup` | Free-form overlay | Light-dismiss / explicit | Anything the three above can't render — color picker, in-place editor, custom tooltip. |
+
+> **WinUI reference:** For the full property surface and design guidance, see [Dialogs And Flyouts](https://learn.microsoft.com/en-us/windows/apps/design/controls/dialogs-and-flyouts/).
 
 ## ContentDialog
 
@@ -122,6 +126,19 @@ real dialog's theme explicitly. Changing that declaration updates the open dialo
 in place; removing it or explicitly requesting `ElementTheme.Default` resumes
 following the owner, consistent with theme inheritance elsewhere in Reactor.
 Native `.Set(dialog => ...)` callbacks run last and can override the theme.
+
+### Dialog style and entrance animation
+
+Reactor resolves the dialog style before mounting its content and calling
+`ShowAsync`. An application-level implicit `ContentDialog` style, including one
+in a merged resource dictionary, takes priority over `DefaultContentDialogStyle`.
+Resolving the style before the first template realization restores WinUI's native
+entrance animation
+([WinUI #8476](https://github.com/microsoft/microsoft-ui-xaml/issues/8476)).
+Native `.Set(dialog => dialog.Style = customStyle)` callbacks run afterward,
+so an explicitly supplied style takes priority when opening or updating a dialog.
+The order is: caller `.Set(...)` style, application implicit style, then
+`DefaultContentDialogStyle`.
 
 ### Three-button dialogs
 

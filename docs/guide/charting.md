@@ -1,4 +1,11 @@
 
+# Charting
+
+ReactorD3 brings data visualization to Microsoft.UI.Reactor (Reactor). The chart DSL provides high-level
+`LineChart`, `BarChart`, `AreaChart`, and `PieChart` factories that produce
+standard Reactor elements. You bind data, configure appearance with a fluent
+API, and the chart renders as native WinUI shapes on a Canvas.
+
 ReactorD3 sits on two layers and you choose the level you author at.
 The high-level DSL — `LineChart`, `BarChart`, `AreaChart`, `PieChart`,
 plus `TreeChart` and `ForceGraph` — covers the cases dashboards keep
@@ -17,19 +24,12 @@ shape on the same `Canvas` the high-level charts use, so dropping a
 level never means switching renderers. Pick the high level by default;
 drop into D3 only when the higher-level surface refuses what you need.
 
-# Charting
-
-ReactorD3 brings data visualization to Microsoft.UI.Reactor (Reactor). The chart DSL provides high-level
-`LineChart`, `BarChart`, `AreaChart`, and `PieChart` factories that produce
-standard Reactor elements. You bind data, configure appearance with a fluent
-API, and the chart renders as native WinUI shapes on a Canvas.
-
 Import the DSL alongside the standard Reactor factories. Charting ships in the
 optional `Microsoft.UI.Reactor.Advanced` package (spec 062 §7), so add its
 package reference first:
 
 ```xml
-<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.17" />
+<PackageReference Include="Microsoft.UI.Reactor.Advanced" Version="0.1.0-preview.18" />
 ```
 
 ```csharp
@@ -239,7 +239,7 @@ class CombinedChartDemo : Component
 
         return VStack(12,
             SubHeading("Interactive Chart"),
-            ComboBox(Years, year, setYear),
+            ComboBox(Years, year, setYear).AutomationName("Year"),
             AreaChart(data, d => d.Month, d => d.Revenue)
                 .Title("Revenue by Year")
                 .SeriesName("Revenue")
@@ -615,7 +615,7 @@ class ChartSwitchDemo : Component
 
         return VStack(8,
             SubHeading("Switch chart type"),
-            ComboBox(kinds, kind, setKind),
+            ComboBox(kinds, kind, setKind).AutomationName("Chart type"),
             chart
                 .Title("Revenue")
                 .SeriesName("Revenue")

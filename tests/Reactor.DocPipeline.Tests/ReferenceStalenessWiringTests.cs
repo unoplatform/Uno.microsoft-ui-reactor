@@ -103,10 +103,10 @@ public class ReferenceStalenessWiringTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains(
-            "XML: src/Reactor/bin/x64/Release/net10.0-windows10.0.22621.0/Reactor.xml " +
+            "XML: src/Reactor/bin/x64/Release/net10.0-windows10.0.22621.0/Microsoft.UI.Reactor.xml " +
             "(2026-08-01T19:28:00Z, newest of 2 candidate(s))",
             output);
-        Assert.DoesNotContain("bin/x64/Debug/net10.0-windows10.0.22621.0/Reactor.xml", output);
+        Assert.DoesNotContain("bin/x64/Debug/net10.0-windows10.0.22621.0/Microsoft.UI.Reactor.xml", output);
     }
 
     /// <summary>
@@ -123,14 +123,14 @@ public class ReferenceStalenessWiringTests
         var (exitCode, output) = repo.CompileWithReferenceLocally();
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("Reactor.xml not found", output);
+        Assert.Contains("Microsoft.UI.Reactor.xml not found", output);
         Assert.DoesNotContain("REACTOR_DOC_REFGEN_W002", output);
     }
 
     /// <summary>
     /// Issue #1052. Under <c>--ci</c> the same missing input is a failure, not a
-    /// degradation: CI always builds, so no <c>Reactor.xml</c> means the run is
-    /// not the run that was asked for, and the ~117 pages under
+    /// degradation: CI always builds, so no <c>Microsoft.UI.Reactor.xml</c> means the run is
+    /// not the run that was asked for, and the pages under
     /// <c>docs/guide/reference/</c> are silently left at whatever was committed.
     /// </summary>
     /// <remarks>
@@ -144,7 +144,7 @@ public class ReferenceStalenessWiringTests
     /// </para>
     /// <para>
     /// The gate used to re-derive this by grepping stdout for
-    /// <c>Reactor.xml not found</c>. That failed <em>open</em>: reword the
+    /// <c>Microsoft.UI.Reactor.xml not found</c>. That failed <em>open</em>: reword the
     /// message in <c>CompileCommand</c> and the grep silently stops matching.
     /// The exit code is the contract now, and this test is what pins it — the
     /// pair with the local case above is what shows it is <c>--ci</c> doing the
@@ -160,7 +160,7 @@ public class ReferenceStalenessWiringTests
         var (exitCode, output) = repo.CompileWithReference();
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("Reactor.xml not found", output);
+        Assert.Contains("Microsoft.UI.Reactor.xml not found", output);
         Assert.Contains("Reference generation was skipped for want of an input", output);
         // The compile must not claim success on the way out — that string is
         // the freshness gate's own precondition.
@@ -169,7 +169,7 @@ public class ReferenceStalenessWiringTests
 
     /// <summary>
     /// The second missing input Phase 5.7 bails on. Same contract, different
-    /// cause — asserting only the <c>Reactor.xml</c> case would leave this one
+    /// cause — asserting only the <c>Microsoft.UI.Reactor.xml</c> case would leave this one
     /// free to regress back to a silent exit 0.
     /// </summary>
     [Fact]
@@ -207,6 +207,75 @@ public class ReferenceStalenessWiringTests
         Assert.Equal(0, exitCode);
         Assert.DoesNotContain("Reference generation was skipped for want of an input", output);
         Assert.Contains("Documentation compiled successfully.", output);
+    }
+
+    /// <summary>
+    /// The assembly is the other half of the input. The XML file alone cannot
+    /// tell element records from other records, so a run without the DLL must
+    /// fail before it rewrites or prunes anything, locally as well as in CI.
+    /// </summary>
+    [Fact]
+    public void Missing_dll_fails_and_leaves_the_reference_pages_alone()
+    {
+        using var repo = new FakeRepo();
+        repo.PlantXml("x64/Release/net10.0-windows10.0.22621.0", Base.AddMinutes(30), withDll: false);
+        repo.PlantSource("Core/Widget.cs", Base);
+        var committed = repo.PlantReferencePage("elements/buttons.md", "# Buttons\n");
+
+        var (ciExit, ciOutput) = repo.CompileWithReference();
+        var (localExit, localOutput) = repo.CompileWithReferenceLocally();
+
+        Assert.Equal(1, ciExit);
+        Assert.Contains("REACTOR_DOC_REFGEN_003", ciOutput);
+        Assert.Contains("Microsoft.UI.Reactor.dll not found", ciOutput);
+        Assert.Contains("dotnet build src/Reactor", ciOutput);
+        Assert.Contains("REACTOR_DOC_REFGEN_003", localOutput);
+        Assert.Equal(0, localExit);
+        // Neither run may prune: this page is not in the plan, so a run that
+        // carried on without the DLL would delete it (see the control below).
+        Assert.True(File.Exists(committed));
+        Assert.Equal("# Buttons\n", File.ReadAllText(committed));
+    }
+
+    /// <summary>
+    /// The control for the test above: with the DLL present, the same stray
+    /// page is pruned. Without it, "the page is still there" could just mean
+    /// the prune never runs on this fixture.
+    /// </summary>
+    [Fact]
+    public void With_the_dll_present_a_page_outside_the_plan_is_pruned()
+    {
+        using var repo = new FakeRepo();
+        repo.PlantXml("x64/Release/net10.0-windows10.0.22621.0", Base.AddMinutes(30));
+        repo.PlantSource("Core/Widget.cs", Base);
+        var stray = repo.PlantReferencePage("elements/buttons.md", "# Buttons\n");
+
+        var (exitCode, output) = repo.CompileWithReference();
+
+        Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("REACTOR_DOC_REFGEN_003", output);
+        Assert.False(File.Exists(stray));
+    }
+
+    /// <summary>
+    /// Issue #1721: the reference covers Microsoft.UI.Reactor.Advanced too, so a
+    /// missing Advanced build skips the phase exactly like a missing core one.
+    /// Generating core alone would prune every Advanced page as stale.
+    /// </summary>
+    [Fact]
+    public void Missing_advanced_build_fails_under_ci_and_leaves_pages_alone()
+    {
+        using var repo = new FakeRepo();
+        repo.PlantXml("x64/Release/net10.0-windows10.0.22621.0", Base.AddMinutes(30), withAdvanced: false);
+        repo.PlantSource("Core/Widget.cs", Base);
+        var committed = repo.PlantReferencePage("elements/docking.md", "# Docking\n");
+
+        var (exitCode, output) = repo.CompileWithReference();
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Microsoft.UI.Reactor.Advanced.xml not found", output);
+        Assert.Contains("dotnet build src/Reactor.Advanced", output);
+        Assert.True(File.Exists(committed));
     }
 
     /// <summary>
@@ -281,25 +350,62 @@ public class ReferenceStalenessWiringTests
         }
 
         /// <summary>
-        /// Writes a routable <c>Reactor.xml</c> at
-        /// <c>src/Reactor/bin/&lt;layout&gt;/</c>. The member is under
-        /// <c>Hooks</c> because Phase 5.7 restricts generation to that category,
-        /// so anything else would produce zero pages and exercise less.
+        /// Writes a routable <c>Microsoft.UI.Reactor.xml</c> at
+        /// <c>src/Reactor/bin/&lt;layout&gt;/</c>, plus the assembly beside it
+        /// unless <paramref name="withDll"/> is false. The member is under
+        /// <c>Hooks</c> because that is the only category the fixture map
+        /// declares, so anything else would produce zero pages and exercise less.
         /// </summary>
-        public string PlantXml(string layout, DateTime writeUtc) =>
-            Write(Path.Join("src", "Reactor", "bin", Native(layout)), "Reactor.xml",
-                """
+        public string PlantXml(string layout, DateTime writeUtc, bool withDll = true, bool withAdvanced = true)
+        {
+            // Phase 5.7 needs every documented assembly (issue #1721); Advanced
+            // is planted beside core unless a test is about its absence.
+            if (withAdvanced)
+                PlantAssembly("Reactor.Advanced", "Microsoft.UI.Reactor.Advanced", "Microsoft.UI.Reactor.Hooks.UseDraw", layout, writeUtc, withDll: true);
+            return PlantAssembly("Reactor", "Microsoft.UI.Reactor", "Microsoft.UI.Reactor.Hooks.UseState", layout, writeUtc, withDll);
+        }
+
+        private string PlantAssembly(string project, string assemblyName, string typeName, string layout, DateTime writeUtc, bool withDll)
+        {
+            var dir = Path.Join("src", project, "bin", Native(layout));
+            if (withDll) PlantDll(Path.Join(_root, dir, assemblyName + ".dll"), assemblyName, typeName, writeUtc);
+            return Write(dir, assemblyName + ".xml",
+                $"""
                 <?xml version="1.0"?>
                 <doc>
-                  <assembly><name>Reactor</name></assembly>
+                  <assembly><name>{assemblyName}</name></assembly>
                   <members>
-                    <member name="T:Microsoft.UI.Reactor.Hooks.UseState">
+                    <member name="T:{typeName}">
                       <summary>State hook.</summary>
                     </member>
                   </members>
                 </doc>
                 """,
                 writeUtc);
+        }
+
+        /// <summary>
+        /// Emits a real assembly holding the one public type the XML documents,
+        /// so the reference phase reads the same surface it would from a build.
+        /// </summary>
+        private static void PlantDll(string path, string assemblyName, string typeName, DateTime writeUtc)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(assemblyName), typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule(assemblyName);
+            module.DefineType(
+                typeName,
+                System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class |
+                System.Reflection.TypeAttributes.Abstract | System.Reflection.TypeAttributes.Sealed).CreateType();
+            assembly.Save(path);
+            File.SetLastWriteTimeUtc(path, writeUtc);
+        }
+
+        /// <summary>Writes a page under <c>docs/guide/reference/</c>, as a previous compile would have.</summary>
+        public string PlantReferencePage(string relativePath, string content) =>
+            Write(Path.Join("docs", "guide", "reference", Path.GetDirectoryName(Native(relativePath)) ?? string.Empty),
+                Path.GetFileName(relativePath), content, Base);
 
         /// <summary>Writes a C# file at <c>src/Reactor/&lt;relativePath&gt;</c>.</summary>
         public string PlantSource(string relativePath, DateTime writeUtc)

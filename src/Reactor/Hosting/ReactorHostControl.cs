@@ -66,9 +66,32 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     // Render() can Mount() a replacement, and the attempt in progress is still the old root's.
     private Microsoft.UI.Reactor.Core.Diagnostics.RootRenderDiagnostics? _renderingRootDiagnostics;
     private Component? _renderingRoot;
+    // The render-function root's context as of the same snapshot: a reentrant Mount() replaces
+    // _funcContext mid-pass, and the root diagnostics must keep naming the root that rendered.
+    private RenderContext? _renderingFuncContext;
+
+    // The rendering root's context: the pass snapshot while a pass runs, else the live root's.
+    private RenderContext? RootDiagnosticContext => _renderingRootDiagnostics is null
+        ? _rootComponent?.Context ?? _funcContext
+        : _renderingRoot?.Context ?? _renderingFuncContext;
     // The root mount site as of the same snapshot: a root render function's hooks resolve
     // through it, and a reentrant Mount() replaces the live one mid-pass.
     private SourceLocation? _renderingMountSite;
+
+    // Process-unique id on this host's Microsoft-UI-Reactor-Perf RenderPass spans.
+    private readonly ulong _perfHostId = Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.NextHostId();
+
+    // The root's perf spans; see RootRenderDiagnostics. Callers of BeginRootPerfSpan check the keyword.
+    private Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.ComponentSpan BeginRootPerfSpan(bool hotReloadRender)
+        => (_renderingRootDiagnostics ?? _rootDiagnostics).BeginPerfSpan(
+            _rootComponent, _funcContext, _rootComponent is null ? _rootRenderFunc : null, DiagnosticMountSite,
+            hotReloadRender, _reconciler.ForceFullRenderPending);
+
+    private Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.EffectsSpan BeginRootEffectsPerfSpan(Component? effectsRoot)
+        // The live root's: the effects flushed are the live root's (_rootComponent or _funcContext),
+        // which a reentrant Mount() during the pass may already have replaced.
+        => _rootDiagnostics.BeginEffectsPerfSpan(effectsRoot?.Context ?? _funcContext);
+
     // Whether the root of the same snapshot is a render function.
     private bool _renderingFunctionRoot;
     private Func<RenderContext, Element>? _rootRenderFunc;
@@ -88,9 +111,13 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     private volatile bool _needsRerender;     // only touched on UI thread
     private bool _themeListenerAttached;   // UISettings subscribed (once per control)
     private FrameworkElement? _themeListenerElement;   // current content root listened to
+    // Issue #1506: on this control, which is in the tree whenever its content is; see HighContrastProbe.
+    private HighContrastProbe? _contrastProbe;
 
-    // Test-only accessor (InternalsVisibleTo Reactor.AppTests.Host).
+    // Test-only accessors (InternalsVisibleTo Reactor.AppTests.Host).
     internal FrameworkElement? ThemeListenerElement => _themeListenerElement;
+    internal HighContrastProbe? ContrastProbeForTest => _contrastProbe;
+    internal int ContrastRefreshCountForTest { get; private set; }
     private volatile bool _disposed;
     private Curve? _pendingAnimationCurve;
     // Snapshot of AnimationAmbient.Current at setter dispatch time
@@ -128,6 +155,27 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     // Reconcile instead of re-allocating an Action 2-3x per render.
     private Microsoft.UI.Dispatching.DispatcherQueueHandler? _renderLoopHandler;
     private Action? _requestRenderAction;
+    // The root component's own rerender (its hooks' requests): claims the request for the root
+    // on the perf RenderPass, then RequestRender. Children reach the control through
+    // _requestRenderAction after their own wrappers have claimed. Bound to the root diagnostics
+    // it was built with and dropped when the root is retired, so a retired root's late requests
+    // claim for the retired root (and name nobody), never for its replacement.
+    private Action? _rootRerenderAction;
+
+    // Who scheduled the next pass, for the perf RenderPass Start.
+    private readonly Microsoft.UI.Reactor.Core.Diagnostics.RenderPassRequests _perfRequests;
+
+    // One closure per root, not per render.
+    private Action RootRerenderAction()
+    {
+        if (_rootRerenderAction is null)
+        {
+            var diagnostics = _rootDiagnostics;
+            var request = _requestRenderAction ??= RequestRender;
+            _rootRerenderAction = () => diagnostics.RequestFromRoot(request);
+        }
+        return _rootRerenderAction;
+    }
 
     // Public perf snapshot — updated every ~1 second, readable from components
     private RenderStats _stats;
@@ -240,6 +288,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         _logger = logger ?? ReactorApp.AppLogger;
         _reconciler = new Reconciler(_logger);
         _reconciler.ThemeAnchor = this;
+        _perfRequests = new(() => _needsRerender);
         // Diagnostics mode needs call sites stamped from the very first render, so it
         // implies source mapping (REACTOR_SOURCEMAP=1 alone remains the narrower opt-in).
         if (global::Microsoft.UI.Reactor.Hosting.ReactorFeatures.DevtoolsSupported
@@ -417,7 +466,8 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     private void TraceRootRendered(bool hotReloadRender, double elapsedMilliseconds)
         => (_renderingRootDiagnostics ?? _rootDiagnostics).TraceRendered(
             _renderingRoot is null ? nameof(FuncElement) : Microsoft.UI.Reactor.Core.Diagnostics.ComponentNames.For(_renderingRoot, element: null),
-            hotReloadRender, _reconciler.ForceFullRenderPending, elapsedMilliseconds);
+            hotReloadRender, _reconciler.ForceFullRenderPending, elapsedMilliseconds,
+            RootDiagnosticContext);
 
     // True when a re-entrant Mount replaced the root this pass is rendering (RetireRoot
     // swaps the diagnostics instance the pass snapshotted).
@@ -549,6 +599,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         // progress (it called Mount), and it reports as the old root.
         _rootDiagnostics.Forget();
         _rootDiagnostics = new();
+        _rootRerenderAction = null;
         // The old root's content stays on screen until the replacement renders; if that
         // render produces nothing, the old tree must still be released (see Render).
         _releaseReplacedTreeOnNullRender = _currentTree is not null || _currentControl is not null;
@@ -775,6 +826,9 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     {
         if (_disposed) return;
 
+        // Before the flag is set below: Note reads it to see whether a pass was already pending.
+        _perfRequests.Note();
+
         if (AnimationScope.HasScope)
             _pendingAnimationCurve = AnimationScope.Current;
 
@@ -822,14 +876,21 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         // mounting a new host) restores that frame's marker instead of clearing it.
         using (RenderErrorDispatch.EnterPropagationScope())
         {
+            // The pass span: root render, reconcile, commit and root effects.
+            bool perfPass = Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.PassEnabled;
+            _rootDiagnostics.BeginPass(perfPass, _perfHostId, _perfRequests,
+                _rootComponent, _funcContext, _rootComponent is null ? _rootRenderFunc : null);
             try
             {
                 Render();
             }
             finally
             {
+                if (perfPass)
+                    Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.RenderPassStop(_perfHostId);
                 _renderingRoot = null;
                 _renderingRootDiagnostics = null;
+                _renderingFuncContext = null;
                 _renderingMountSite = null;
                 _renderingFunctionRoot = false;
                 // Reset the gate so future setState calls can enqueue — also when a render
@@ -975,6 +1036,8 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         // The root whose effects are being flushed, captured before app code runs: an effect
         // can Mount() a replacement root and then throw, and the failure is the original's.
         Component? effectsRoot = null;
+        // Ended before the root effects, or by the finally on any early exit.
+        Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.ComponentSpan rootPerfSpan = default;
         try
         {
             if (_deferredRetirements is not null)
@@ -988,6 +1051,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             // clears the snapshot when the pass ends).
             _renderingRoot = _rootComponent;
             _renderingRootDiagnostics = _rootDiagnostics;
+            _renderingFuncContext = _rootComponent is null ? _funcContext : null;
             _renderingMountSite = _mountSite.Value;
             _renderingFunctionRoot = _rootComponent is null && _rootRenderFunc is not null;
             // Same snapshot for component inspection: Render() can Mount() a replacement, and the
@@ -1003,11 +1067,15 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
 
             _phaseSw.Restart();
 
+            if (Microsoft.UI.Reactor.Core.Diagnostics.ReactorPerfTrace.ComponentEnabled
+                && (_rootComponent is not null || (_rootRenderFunc is not null && _funcContext is not null)))
+                rootPerfSpan = BeginRootPerfSpan(hotReloadRender);
+
             // Captured before app code runs: the root's Render() can Mount() a replacement
             // root and then throw, and the failure belongs to the component that threw.
             if (_rootComponent is { } renderingRoot)
             {
-                renderingRoot.Context.BeginRender(_requestRenderAction ??= RequestRender, this);
+                renderingRoot.Context.BeginRender(RootRerenderAction(), this);
                 try
                 {
                     using (ValidationRenderScope.Begin(null))
@@ -1033,7 +1101,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
                 }
                 // A propagation the app requested (RenderError.Propagate()) leaves without a
                 // fallback; the root's Render() still ran, so report it on the way out.
-                catch (Exception) when (Microsoft.UI.Reactor.Core.Diagnostics.ComponentRenderTrace.IsEnabled)
+                catch (Exception) when (Microsoft.UI.Reactor.Core.Diagnostics.ComponentRenderTrace.IsEnabled || rootPerfSpan.IsActive)
                 {
                     TraceRootRendered(hotReloadRender, _phaseSw.Elapsed.TotalMilliseconds);
                     throw;
@@ -1041,7 +1109,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             }
             else if (_rootRenderFunc is not null && _funcContext is not null)
             {
-                _funcContext.BeginRender(_requestRenderAction ??= RequestRender, this);
+                _funcContext.BeginRender(RootRerenderAction(), this);
                 try
                 {
                     using (ValidationRenderScope.Begin(null))
@@ -1065,7 +1133,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
                     return;
                 }
                 // See the component branch: report an app-requested propagation on the way out.
-                catch (Exception) when (Microsoft.UI.Reactor.Core.Diagnostics.ComponentRenderTrace.IsEnabled)
+                catch (Exception) when (Microsoft.UI.Reactor.Core.Diagnostics.ComponentRenderTrace.IsEnabled || rootPerfSpan.IsActive)
                 {
                     TraceRootRendered(hotReloadRender, _phaseSw.Elapsed.TotalMilliseconds);
                     throw;
@@ -1100,13 +1168,18 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
                     _renderedRoot = passRoot;
                 // Commit the render like any other: the root's effects still run, and a
                 // failure among them is routed as an effect failure by the outer catch.
+                rootPerfSpan.Dispose();
+                rootPerfSpan = default;
                 failurePhase = RenderErrorSource.Effects;
                 // Captured like the non-null path's, so a failure is named after this root.
                 effectsRoot = _rootComponent;
-                if (effectsRoot is not null)
-                    effectsRoot.Context.FlushEffects();
-                else if (_funcContext is not null)
-                    _funcContext.FlushEffects();
+                using (BeginRootEffectsPerfSpan(effectsRoot))
+                {
+                    if (effectsRoot is not null)
+                        effectsRoot.Context.FlushEffects();
+                    else if (_funcContext is not null)
+                        _funcContext.FlushEffects();
+                }
                 failurePhase = RenderErrorSource.Reconcile;
                 return;
             }
@@ -1221,12 +1294,18 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
 
             _phaseSw.Restart();
 
+            // The root's span covers its render, the reconcile and the commit; effects are separate.
+            rootPerfSpan.Dispose();
+            rootPerfSpan = default;
             failurePhase = RenderErrorSource.Effects;
             effectsRoot = _rootComponent;
-            if (effectsRoot is not null)
-                effectsRoot.Context.FlushEffects();
-            else if (_funcContext is not null)
-                _funcContext.FlushEffects();
+            using (BeginRootEffectsPerfSpan(effectsRoot))
+            {
+                if (effectsRoot is not null)
+                    effectsRoot.Context.FlushEffects();
+                else if (_funcContext is not null)
+                    _funcContext.FlushEffects();
+            }
             failurePhase = RenderErrorSource.Reconcile;
 
             double effectsMs = _phaseSw.Elapsed.TotalMilliseconds;
@@ -1312,6 +1391,7 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         }
         finally
         {
+            rootPerfSpan.Dispose();
             _reconciler.EndRootPass();
             _isRendering = false;
             if (hotReloadRetryPass) _reconciler.HotReloadRetryPending = false;
@@ -1340,6 +1420,11 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
         if (_themeListenerAttached) return;
         _themeListenerAttached = true;
 
+        // Issue #1506: ActualThemeChanged does not cover a contrast theme being switched on, and
+        // ColorValuesChanged below arrives before WinUI has applied it; the probe reports it once
+        // WinUI has.
+        _contrastProbe = HighContrastProbe.TryAttach(this, OnContrastThemeApplied);
+
         // Issue #660 (#86): also invalidate on high-contrast / accent / palette
         // changes, which don't raise ActualThemeChanged but can change a resolved
         // brush. ColorValuesChanged fires off the UI thread; ThemeRef cache clear
@@ -1365,6 +1450,17 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
     {
         Microsoft.UI.Reactor.Core.ThemeRef.InvalidateResolutionCache();
         RequestRender();
+    }
+
+    private void OnContrastThemeApplied()
+    {
+        if (_disposed) return;
+        _logger?.LogDebug("Contrast theme switched — refreshing theme resources");
+        ContrastRefreshCountForTest++;
+        // A resource-refresh pass, as Theme.NotifyResourcesChanged does for this host:
+        // memoized subtrees hold resolved brushes too.
+        Microsoft.UI.Reactor.Core.ThemeRef.InvalidateResolutionCache();
+        ((IThemeResourceListener)this).OnThemeResourcesChanged();
     }
 
     private void ShowErrorFallback(Exception ex, RenderErrorSource source, string? componentName = null)
@@ -1477,6 +1573,8 @@ public sealed partial class ReactorHostControl : ContentControl, IDisposable, Co
             _uiSettings.ColorValuesChanged -= OnColorValuesChanged;
             _uiSettings = null;
         }
+        _contrastProbe?.Dispose();
+        _contrastProbe = null;
         DetachThemeListener();
 
         // Issue #1291 — see ReactorHost.Dispose.

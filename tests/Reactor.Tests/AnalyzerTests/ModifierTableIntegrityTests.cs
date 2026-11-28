@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.UI.Reactor.Analyzers;
 using Microsoft.UI.Reactor.Cli.Pack;
 using Xunit;
@@ -152,6 +154,45 @@ public class ModifierTableIntegrityTests
             blank.Count == 0,
             $"These exclusions have no documented reason: [{string.Join(", ", blank)}]. " +
             "An unexplained exclusion is indistinguishable from an oversight.");
+    }
+
+    [Fact]
+    public void Every_Visual_Owning_Modifier_And_ANIM_004_Fix_Target_Is_A_Real_Generic_Modifier()
+    {
+        // REACTOR_ANIM_004 binds both its trigger set and its rewrite targets by name. A row
+        // naming a modifier that does not exist never triggers, and a fix target that does not
+        // exist would make the analyzer's speculative bind fail and silently drop the fix.
+        var names = ModifierTable.VisualOwningModifiers.Keys
+            .Concat(FacadeTransformSetAnalyzer.FacadeMembers.Values
+                .Select(member => member.Modifier)
+                .OfType<string>());
+
+        var missing = names
+            .Where(name => !DeclaredGenericModifiers.Value.Contains(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            missing.Count == 0,
+            "REACTOR_ANIM_004 names modifiers that ElementExtensions/FlexExtensions do not declare " +
+            $"in the fluent '(this T el, ...)' shape: [{string.Join(", ", missing)}].");
+        Assert.All(ModifierTable.VisualOwningModifiers, row => Assert.False(string.IsNullOrWhiteSpace(row.Value)));
+    }
+
+    [Fact]
+    public void ANIM_004_Members_Are_Never_Mapped_For_MOD_002()
+    {
+        // Spec 066 §9.1: one .Set write must never get both REACTOR_ANIM_004 and REACTOR_MOD_002,
+        // which would also offer two competing fixes on the same .Set. MOD_002 only fires for
+        // members mapped in Properties, so none of ANIM_004's members may be mapped there.
+        var both = FacadeTransformSetAnalyzer.FacadeMembers.Keys
+            .Append("Translation")
+            .Where(ModifierTable.Properties.ContainsKey)
+            .ToList();
+
+        Assert.True(
+            both.Count == 0,
+            $"These REACTOR_ANIM_004 members are mapped in ModifierTable.Properties: [{string.Join(", ", both)}].");
     }
 
     // ── Staleness ────────────────────────────────────────────────────────────
@@ -506,7 +547,7 @@ public class ModifierTableIntegrityTests
     /// fails <see cref="Every_Attached_Entry_Names_A_Generic_Modifier_That_Exists"/> until
     /// that class is listed here.
     /// </summary>
-    private static readonly Lazy<HashSet<string>> DeclaredGenericModifiers = new(() =>
+    internal static readonly Lazy<HashSet<string>> DeclaredGenericModifiers = new(() =>
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         CollectGenericModifiers(typeof(Microsoft.UI.Reactor.ElementExtensions), names);
@@ -590,19 +631,23 @@ public class ModifierTableIntegrityTests
         // WIDE makes the analyzer suggest a modifier the reconciler never writes (the rewrite
         // compiles and does nothing — the ValueList/CellComponent regression), while one that
         // is too NARROW just drops diagnostics. Nothing else notices either, so pin the copy
-        // to its source.
+        // to its source. Since spec 067 layer 1 the gate is declared on the ModifierSchema slot
+        // (AnalyzerControlGate) and ModifierTable reads it from there.
         var actualGates = ReadApplyModifierControlGates();
         var problems = new List<string>();
+        var compared = 0;
 
-        foreach (var (prop, info) in ModifierTable.Properties)
+        foreach (var slot in Microsoft.UI.Reactor.Analyzers.Modifiers.ModifierSchema.Slots)
         {
-            if (info.ControlGate is not { } declared)
+            if (slot.AnalyzerControlGate is not { } declared)
                 continue;
+            var prop = slot.Name;
+            compared++;
 
             if (!actualGates.TryGetValue(prop, out var actual))
             {
                 problems.Add(
-                    $"{prop}: ModifierTable declares a control gate [{string.Join("|", declared)}], " +
+                    $"{prop}: ModifierSchema declares an analyzer control gate [{string.Join("|", declared)}], " +
                     "but ApplyModifiers has no 'fe is <Type>' test guarded by 'm." + prop + "'");
                 continue;
             }
@@ -610,14 +655,33 @@ public class ModifierTableIntegrityTests
             if (!actual.SetEquals(declared))
             {
                 problems.Add(
-                    $"{prop}: ModifierTable says [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] " +
+                    $"{prop}: ModifierSchema says [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] " +
                     $"but ApplyModifiers writes to [{string.Join("|", actual.OrderBy(t => t, StringComparer.Ordinal))}]");
             }
         }
 
+        Assert.True(compared >= 8, $"Only {compared} slots declare an analyzer control gate.");
+
+        // Every shipped row too: Common(...) rows read the schema gate checked above, and an
+        // editorial `new ModifierInfo(..., controlGate: …)` row is checked here directly, so no
+        // gate NoOpModifierAnalyzer reads escapes both loops.
+        foreach (var (prop, info) in ModifierTable.Properties)
+        {
+            if (info.ControlGate is not { } declared
+                || ReferenceEquals(declared, Microsoft.UI.Reactor.Analyzers.Modifiers.ModifierSchema.Find(prop)?.AnalyzerControlGate))
+            {
+                continue;
+            }
+
+            if (!actualGates.TryGetValue(prop, out var actual))
+                problems.Add($"{prop}: ModifierTable declares a control gate [{string.Join("|", declared)}], but ApplyModifiers has no 'fe is <Type>' test guarded by 'm." + prop + "'");
+            else if (!actual.SetEquals(declared))
+                problems.Add($"{prop}: ModifierTable says [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] but ApplyModifiers writes to [{string.Join("|", actual.OrderBy(t => t, StringComparer.Ordinal))}]");
+        }
+
         Assert.True(
             problems.Count == 0,
-            "ModifierTable.ControlGate has drifted from Reconciler.ApplyModifiers, which is the " +
+            "The analyzer's control gates have drifted from Reconciler.ApplyModifiers, which is the " +
             "runtime authority for which controls a modifier is actually written to:\n  " +
             string.Join("\n  ", problems));
     }
@@ -628,11 +692,11 @@ public class ModifierTableIntegrityTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// That test iterates <see cref="ModifierTable.Properties"/> and skips entries whose
-    /// <see cref="ModifierInfo.ControlGate"/> is <see langword="null"/>, so a gate the reconciler
-    /// enforces but the table does not name is invisible to it — including a brand-new type-gated
-    /// modifier, and the <c>IsEnabled</c> / <c>H|VContentAlignment</c> trio whose gate is
-    /// deliberately left null for the <c>.Set</c> direction.
+    /// That test only checks gates that are declared (on a <c>ModifierSchema</c> slot or a
+    /// <see cref="ModifierTable.Properties"/> row), so a gate the reconciler enforces but nothing
+    /// names is invisible to it — including a brand-new type-gated modifier, and the
+    /// <c>IsEnabled</c> / <c>H|VContentAlignment</c> trio whose gate is deliberately left null for
+    /// the <c>.Set</c> direction.
     /// </para>
     /// <para>
     /// That gap matters because <see cref="NoOpModifierAnalyzer"/> (<c>REACTOR_MOD_003</c>) reads the
@@ -669,10 +733,11 @@ public class ModifierTableIntegrityTests
 
             problems.Add(
                 $"{prop}: ApplyModifiers gates it on [{string.Join("|", actual.OrderBy(t => t, StringComparer.Ordinal))}] " +
-                "but ModifierTable neither declares a ControlGate for it nor records it in " +
-                "GateOnlyInReconciler. Declare the gate (so REACTOR_MOD_002 withholds its suggestion and " +
-                "REACTOR_MOD_003 reports the silent drop), or add a GateOnlyInReconciler entry saying why " +
-                "neither rule needs it.");
+                "but the analyzer neither declares a ControlGate for it nor records it in " +
+                "GateOnlyInReconciler. Declare the gate on its ModifierSchema slot with " +
+                ".Analyzer(controlGate: …) and give it a Common(\"" + prop + "\") row in ModifierTable.Properties " +
+                "(so REACTOR_MOD_002 withholds its suggestion and REACTOR_MOD_003 reports the silent drop), " +
+                "or give the slot .Analyzer(gateOnlyInReconciler: \"…\") saying why neither rule needs it.");
         }
 
         Assert.True(
@@ -716,11 +781,10 @@ public class ModifierTableIntegrityTests
     }
 
     /// <summary>
-    /// <c>Reconciler</c> carries a <b>second</b> copy of the same allow-list:
     /// <c>GetDependencyPropertyName</c> decides which properties a <c>ThemeRef</c> binding may emit
-    /// a <c>&lt;Setter&gt;</c> for. Nothing pins it to <c>ApplyModifiers</c>, so
-    /// <c>.Background(Theme.X)</c> and <c>.Background("#fff")</c> can silently disagree about which
-    /// controls they reach — and both analyzers would be right about only one of them.
+    /// a <c>&lt;Setter&gt;</c> for. Its allow-list matches <c>ApplyModifiers</c> by default.
+    /// A separate <see cref="ModifierInfo.ThemeControlGate"/> can add receivers while preserving
+    /// those supported by <c>ApplyModifiers</c>.
     /// </summary>
     [Fact]
     public void GetDependencyPropertyName_Agrees_With_ApplyModifiers_And_The_Table()
@@ -738,6 +802,18 @@ public class ModifierTableIntegrityTests
 
         foreach (var (prop, themeGate) in themeGates.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
+            if (ElementSpecificThemeProperties.Contains(prop))
+                continue;
+
+            ModifierTable.Properties.TryGetValue(prop, out var info);
+            if ((info?.ThemeControlGate ?? info?.ControlGate) is { } declared
+                && !themeGate.SetEquals(declared))
+            {
+                problems.Add(
+                    $"{prop}: ModifierTable declares [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] " +
+                    $"but the ThemeRef path reaches [{string.Join("|", themeGate.OrderBy(t => t, StringComparer.Ordinal))}].");
+            }
+
             if (!applyGates.TryGetValue(prop, out var applyGate))
             {
                 problems.Add(
@@ -747,7 +823,17 @@ public class ModifierTableIntegrityTests
                 continue;
             }
 
-            if (!themeGate.SetEquals(applyGate))
+            if (info?.ThemeControlGate is not null)
+            {
+                if (!themeGate.IsSupersetOf(applyGate))
+                {
+                    var missingReceivers = applyGate.Except(themeGate).OrderBy(t => t, StringComparer.Ordinal);
+                    problems.Add(
+                        $"{prop}: the ThemeRef path is missing ApplyModifiers receivers " +
+                        $"[{string.Join("|", missingReceivers)}].");
+                }
+            }
+            else if (!themeGate.SetEquals(applyGate))
             {
                 problems.Add(
                     $"{prop}: the ThemeRef path reaches [{string.Join("|", themeGate.OrderBy(t => t, StringComparer.Ordinal))}] " +
@@ -755,15 +841,15 @@ public class ModifierTableIntegrityTests
                     "A modifier that works with a literal brush and not with a Theme token (or vice versa) is a " +
                     "silent, overload-dependent bug.");
             }
+        }
 
-            if (ModifierTable.Properties.TryGetValue(prop, out var info)
-                && info.ControlGate is { } declared
-                && !themeGate.SetEquals(declared))
-            {
-                problems.Add(
-                    $"{prop}: ModifierTable declares [{string.Join("|", declared.OrderBy(t => t, StringComparer.Ordinal))}] " +
-                    $"but the ThemeRef path reaches [{string.Join("|", themeGate.OrderBy(t => t, StringComparer.Ordinal))}].");
-            }
+        foreach (var prop in ElementSpecificThemeProperties.Where(prop => !themeGates.ContainsKey(prop)))
+            problems.Add($"{prop}: listed as element-specific but GetDependencyPropertyName no longer maps it. Remove the row.");
+
+        foreach (var (prop, info) in ModifierTable.Properties)
+        {
+            if (info.ThemeControlGate is not null && !themeGates.ContainsKey(prop))
+                problems.Add($"{prop}: declares a ThemeControlGate but GetDependencyPropertyName does not map it.");
         }
 
         Assert.True(
@@ -772,29 +858,38 @@ public class ModifierTableIntegrityTests
     }
 
     /// <summary>
-    /// Property name → the WinUI type names <c>Reconciler.GetDependencyPropertyName</c> will emit a
-    /// <c>{ThemeResource}</c> setter for, read out of <c>Reconciler.cs</c>. The method's body is a
-    /// chain of <c>if (property == "X" &amp;&amp; (fe is A || fe is B)) return "X";</c>, so each
-    /// branch's string comparison names the property and the type tests are the gate.
+    /// ThemeRef properties that come from one element's own extension rather than a common
+    /// modifier, so <c>ApplyModifiers</c> has no brush counterpart to agree with.
+    /// <c>PaneBackground</c> is <c>SplitViewElement.PaneBackground(ThemeRef)</c>.
     /// </summary>
-    private static Dictionary<string, HashSet<string>> ReadGetDependencyPropertyNameGates()
-    {
-        var root = RepoRootFinder.FindRepoRoot();
-        Assert.NotNull(root);
-        var file = Path.Join(root!, "src", "Reactor", "Core", "Reconciler.cs");
-        Assert.True(File.Exists(file), $"Reconciler.cs not found at {file}");
+    private static readonly HashSet<string> ElementSpecificThemeProperties = new(StringComparer.Ordinal) { "PaneBackground" };
 
-        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(file));
-        var method = tree.GetRoot()
-            .DescendantNodes()
-            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
-            .FirstOrDefault(m => m.Identifier.Text == "GetDependencyPropertyName");
+    /// <summary>
+    /// Property name → the WinUI type names <c>ThemeBindingApplier.GetDependencyPropertyName</c> will emit a
+    /// <c>{ThemeResource}</c> setter for, read out of the reconciler source. Its rows, and those of the
+    /// generated <c>GetModifierDependencyPropertyName</c> it calls first (spec 067 layer 2), are a
+    /// chain of <c>if (property == "X" &amp;&amp; (fe is A || fe is B)) return "X";</c>, so each
+    /// branch's string comparison names the property and its type tests supply the receiver gate.
+    /// </summary>
+    internal static Dictionary<string, HashSet<string>> ReadGetDependencyPropertyNameGates()
+    {
+        var method = ReconcilerSource.Methods("GetDependencyPropertyName").FirstOrDefault();
 
         Assert.NotNull(method);
 
+        // Spec 067 layer 2: the common-modifier rows moved into the generated
+        // GetModifierDependencyPropertyName. Reading its rows only means something if the
+        // hand-written method still calls it.
+        var generated = ReconcilerSource.Methods("GetModifierDependencyPropertyName").FirstOrDefault();
+        Assert.NotNull(generated);
+        Assert.True(method!.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Any(call => ReconcilerSource.InvokedName(call) == "GetModifierDependencyPropertyName"),
+            "GetDependencyPropertyName no longer calls the generated GetModifierDependencyPropertyName, so the "
+            + "Background/Foreground/BorderBrush ThemeRef rows are unreachable.");
+
         var gates = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
-        foreach (var ifStatement in method!.DescendantNodes()
+        foreach (var ifStatement in new[] { method!, generated! }.SelectMany(m => m.DescendantNodes())
             .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.IfStatementSyntax>())
         {
             var property = ifStatement.Condition
@@ -830,12 +925,68 @@ public class ModifierTableIntegrityTests
     /// <see langword="null"/> for any other shape (array, generic, tuple, …), which the gates never
     /// use.
     /// </summary>
-    private static string? SimpleTypeName(Microsoft.CodeAnalysis.SyntaxNode type) => type switch
+    private static string? SimpleTypeName(SyntaxNode type) => type switch
     {
         Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
         Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax simple => simple.Identifier.Text,
         _ => null,
     };
+
+    private static bool CallsForegroundPropertyLookup(SyntaxNode node) =>
+        node.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>()
+            .Any(call => call.Expression is IdentifierNameSyntax { Identifier.ValueText: "GetProperty" }
+                or MemberAccessExpressionSyntax
+                {
+                    Expression: IdentifierNameSyntax { Identifier.ValueText: "ForegroundModifier" },
+                    Name.Identifier.ValueText: "GetProperty",
+                });
+
+    [Fact]
+    public void Foreground_Diagnostics_And_Runtime_Have_The_Same_Receivers()
+    {
+        var root = RepoRootFinder.FindRepoRoot();
+        Assert.NotNull(root);
+        var runtimeReceivers = ReadForegroundPropertyGate(ReadForegroundModifierSource(root!));
+
+        // Spec 067 layer 2: the owner helpers are generated from the schema; the runtime side,
+        // ForegroundModifier.GetProperty, stays hand-written, so this still compares two sources.
+        var file = Path.Join(root!, "src", "Reactor", "Core", "Diagnostics", "AppliedModifierMap.Generated.cs");
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var source = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree
+            .ParseText(File.ReadAllText(file), cancellationToken: cancellationToken)
+            .GetRoot(cancellationToken);
+        var owner = Assert.Single(source.DescendantNodes().OfType<MethodDeclarationSyntax>(),
+            method => method.Identifier.ValueText == "ForegroundOwner");
+        var diagnosticReceivers = owner.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Select(call => call.Expression)
+            .OfType<GenericNameSyntax>()
+            .Where(name => name.Identifier.ValueText == "Is")
+            .Select(name => SimpleTypeName(name.TypeArgumentList.Arguments.Single()))
+            .OfType<string>();
+
+        Assert.Equal(runtimeReceivers.OrderBy(name => name, StringComparer.Ordinal),
+            diagnosticReceivers.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    private static SyntaxNode ReadForegroundModifierSource(string repoRoot)
+    {
+        var file = Path.Join(repoRoot, "src", "Reactor", "Core", "ForegroundModifier.cs");
+        return Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(file)).GetRoot();
+    }
+
+    private static IEnumerable<string> ReadForegroundPropertyGate(SyntaxNode root)
+    {
+        var method = Assert.Single(root.DescendantNodes().OfType<MethodDeclarationSyntax>(),
+            declaration => declaration.Identifier.ValueText == "GetProperty");
+        var lookup = Assert.IsType<SwitchExpressionSyntax>(method.ExpressionBody?.Expression);
+        var receivers = lookup.Arms.Select(arm => arm.Pattern)
+            .OfType<DeclarationPatternSyntax>()
+            .Select(pattern => SimpleTypeName(pattern.Type))
+            .OfType<string>()
+            .ToArray();
+        Assert.NotEmpty(receivers);
+        return receivers;
+    }
 
     /// <summary>
     /// <see cref="NoOpModifierAnalyzer"/> resolves an element's mounted control from Reactor's
@@ -1065,8 +1216,8 @@ public class ModifierTableIntegrityTests
     }
 
     /// <summary>
-    /// Modifier property name → the WinUI type names <c>ApplyModifiers</c> actually writes it
-    /// to, read out of <c>Reconciler.cs</c>.
+    /// Modifier property name → the WinUI type names the common modifiers actually write to,
+    /// read out of the reconciler source and <c>ForegroundModifier.cs</c>.
     /// </summary>
     /// <remarks>
     /// Parsed with Roslyn rather than matched with a regex: the gate lives in a type-test
@@ -1075,29 +1226,30 @@ public class ModifierTableIntegrityTests
     /// the containment relationship exact, so this test fails on real drift instead of on
     /// reformatting.
     /// </remarks>
-    private static Dictionary<string, HashSet<string>> ReadApplyModifierControlGates()
+    internal static Dictionary<string, HashSet<string>> ReadApplyModifierControlGates()
     {
+        // ApplyModifiers itself is an ordered sequence of per-family helper calls; the arms
+        // live in those helpers, so read the whole family.
+        var methods = ReconcilerSource.ApplyModifiersFamily();
+
+        // Two ApplyModifiers overloads are roots, so count the helpers themselves.
+        Assert.True(
+            methods.Count(method => method.Identifier.Text != ReconcilerSource.ApplyModifiersName) > 0,
+            "No ApplyModifiers family helpers found in the Reconciler partial files");
         var root = RepoRootFinder.FindRepoRoot();
         Assert.NotNull(root);
-        var file = Path.Join(root!, "src", "Reactor", "Core", "Reconciler.cs");
-        Assert.True(File.Exists(file), $"Reconciler.cs not found at {file}");
-
-        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(file));
-        var methods = tree.GetRoot()
-            .DescendantNodes()
-            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
-            .Where(m => m.Identifier.Text == "ApplyModifiers")
-            .ToList();
-
-        Assert.True(methods.Count > 0, "No ApplyModifiers method found in Reconciler.cs");
+        var foregroundSource = ReadForegroundModifierSource(root!);
+        methods.Add(Assert.Single(foregroundSource.DescendantNodes().OfType<MethodDeclarationSyntax>(),
+            method => method.Identifier.ValueText == "Apply"));
 
         var gates = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
         foreach (var method in methods)
         {
-            // Padding and BorderThickness are computed into a local first (to overlay the
-            // BiDi-aware inline variants), so the guard reads `resolvedPadding`, not
-            // `m.Padding`. Map those locals back to the modifier they were seeded from.
+            // Margin is computed into a local first (to overlay the BiDi-aware inline variants),
+            // so its guard reads `resolvedMargin`, not `m.Margin`. Map such locals back to the
+            // modifier they were seeded from. Padding and BorderThickness write through the
+            // generated ApplyResolved<X>Modifier (spec 067 layer 4), whose guards name the bag.
             var localToProperty = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var declarator in method.DescendantNodes()
                 .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.VariableDeclaratorSyntax>()
@@ -1150,6 +1302,8 @@ public class ModifierTableIntegrityTests
                     .Where(typeName => typeName is not null);
 
                 var typeNames = isPatternTypeNames.Concat(switchPatternTypeNames);
+                if (guarded.Contains("Foreground") && CallsForegroundPropertyLookup(ifStatement.Condition))
+                    typeNames = typeNames.Concat(ReadForegroundPropertyGate(foregroundSource));
 
                 foreach (var typeName in typeNames)
                 {

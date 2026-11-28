@@ -402,6 +402,7 @@ internal static class ModifierEventFixtures
     {
         public override async Task RunAsync()
         {
+            using var motion = Microsoft.UI.Reactor.Navigation.TransitionEngine.OverrideAnimationsEnabled(true);
             var host = H.CreateHost();
             host.Mount(ctx =>
             {
@@ -426,8 +427,12 @@ internal static class ModifierEventFixtures
             await Harness.Render();
             var target = H.FindText("TransTarget");
             H.Check("Transition_Initial", target is not null);
-            H.Check("Transition_OpacityTransSet", target!.OpacityTransition is not null);
-            H.Check("Transition_TranslationSet", target!.TranslationTransition is not null);
+            // Spec 066 §5: compositor transitions, never the XAML properties. An Opacity key on the
+            // visual, and a write-time Translation claim.
+            var keys = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(target!).ImplicitAnimations;
+            H.Check("Transition_OpacityTransSet", target!.OpacityTransition is null && keys?.ContainsKey("Opacity") == true);
+            H.Check("Transition_TranslationSet", target!.TranslationTransition is null
+                && Microsoft.UI.Reactor.Animation.ImplicitAnimationSlots.TranslationTransition(target) is not null);
 
             H.ClickButton("UpdTrans");
             await Harness.Render();
@@ -1021,6 +1026,7 @@ internal static class ModifierEventFixtures
                                 Opacity = 0.5,
                                 IsVisible = false,
                                 AccessKey = "P",
+                                RequestedTheme = ElementTheme.Dark,
                             }
                         },
                         1 => Empty(),
@@ -1039,7 +1045,9 @@ internal static class ModifierEventFixtures
                 && first.ReadLocalValue(FrameworkElement.HorizontalAlignmentProperty) != DependencyProperty.UnsetValue
                 && first.ReadLocalValue(UIElement.OpacityProperty) != DependencyProperty.UnsetValue
                 && first.ReadLocalValue(UIElement.VisibilityProperty) != DependencyProperty.UnsetValue
-                && first.ReadLocalValue(UIElement.AccessKeyProperty) != DependencyProperty.UnsetValue);
+                && first.ReadLocalValue(UIElement.AccessKeyProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(FrameworkElement.RequestedThemeProperty) != DependencyProperty.UnsetValue
+                && first.RequestedTheme == ElementTheme.Dark);
 
             H.ClickButton("DropPoolClear");
             await Harness.Render();
@@ -1075,6 +1083,11 @@ internal static class ModifierEventFixtures
                 && second.Visibility == Visibility.Visible);
             H.Check("PoolClear_Phase2_AccessKeyCleared",
                 second.ReadLocalValue(UIElement.AccessKeyProperty) == DependencyProperty.UnsetValue);
+            // Issue #1717: the renter declares no RequestedTheme, so a Dark left behind by the
+            // previous renter would theme its whole subtree.
+            H.Check("PoolClear_Phase2_RequestedThemeCleared",
+                second.ReadLocalValue(FrameworkElement.RequestedThemeProperty) == DependencyProperty.UnsetValue
+                && second.RequestedTheme == ElementTheme.Default);
         }
     }
 
@@ -1230,7 +1243,9 @@ internal static class ModifierEventFixtures
                                 Factories.TextBlock("pool-cp-panel"))
                             .Background("#FF884422")
                             .Padding(19)
-                            .CornerRadius(7),
+                            .CornerRadius(7)
+                            .BorderThickness(3)
+                            .BorderBrush("#FFFF0000"),
                         1 => Empty(),
                         _ => Factories.Grid([GridSize.Star()], [GridSize.Star()],
                                 Factories.TextBlock("pool-cp-panel-2")),
@@ -1260,7 +1275,9 @@ internal static class ModifierEventFixtures
                 firstPanel is not null
                 && firstPanel.ReadLocalValue(Panel.BackgroundProperty) != DependencyProperty.UnsetValue
                 && firstPanel.ReadLocalValue(WinUI.Grid.PaddingProperty) != DependencyProperty.UnsetValue
-                && firstPanel.ReadLocalValue(WinUI.Grid.CornerRadiusProperty) != DependencyProperty.UnsetValue);
+                && firstPanel.ReadLocalValue(WinUI.Grid.CornerRadiusProperty) != DependencyProperty.UnsetValue
+                && firstPanel.ReadLocalValue(WinUI.Grid.BorderThicknessProperty) != DependencyProperty.UnsetValue
+                && firstPanel.ReadLocalValue(WinUI.Grid.BorderBrushProperty) != DependencyProperty.UnsetValue);
 
             H.ClickButton("DropPoolCp");
             await Harness.Render();
@@ -1319,6 +1336,10 @@ internal static class ModifierEventFixtures
                 secondPanel.ReadLocalValue(WinUI.Grid.PaddingProperty) == DependencyProperty.UnsetValue);
             H.Check("PoolCp_Phase2_PanelCornerRadiusCleared",
                 secondPanel.ReadLocalValue(WinUI.Grid.CornerRadiusProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolCp_Phase2_PanelBorderThicknessCleared",
+                secondPanel.ReadLocalValue(WinUI.Grid.BorderThicknessProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolCp_Phase2_PanelBorderBrushCleared",
+                secondPanel.ReadLocalValue(WinUI.Grid.BorderBrushProperty) == DependencyProperty.UnsetValue);
         }
     }
 
@@ -1350,7 +1371,9 @@ internal static class ModifierEventFixtures
                         0 => VStack(Factories.TextBlock("pool-stack-carrier"))
                             .Padding(17)
                             .CornerRadius(9)
-                            .Background("#FF335577"),
+                            .Background("#FF335577")
+                            .BorderThickness(3)
+                            .BorderBrush("#FFFF0000"),
                         1 => Empty(),
                         // Remounted with no modifiers at all.
                         _ => VStack(Factories.TextBlock("pool-stack-carrier-2")),
@@ -1365,7 +1388,9 @@ internal static class ModifierEventFixtures
                 first is not null
                 && first.ReadLocalValue(StackPanel.PaddingProperty) != DependencyProperty.UnsetValue
                 && first.ReadLocalValue(StackPanel.CornerRadiusProperty) != DependencyProperty.UnsetValue
-                && first.ReadLocalValue(Panel.BackgroundProperty) != DependencyProperty.UnsetValue);
+                && first.ReadLocalValue(Panel.BackgroundProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(StackPanel.BorderThicknessProperty) != DependencyProperty.UnsetValue
+                && first.ReadLocalValue(StackPanel.BorderBrushProperty) != DependencyProperty.UnsetValue);
 
             H.ClickButton("DropPoolStack");
             await Harness.Render();
@@ -1392,6 +1417,10 @@ internal static class ModifierEventFixtures
                 second.ReadLocalValue(StackPanel.CornerRadiusProperty) == DependencyProperty.UnsetValue);
             H.Check("PoolStack_Phase2_BackgroundCleared",
                 second.ReadLocalValue(Panel.BackgroundProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolStack_Phase2_BorderThicknessCleared",
+                second.ReadLocalValue(StackPanel.BorderThicknessProperty) == DependencyProperty.UnsetValue);
+            H.Check("PoolStack_Phase2_BorderBrushCleared",
+                second.ReadLocalValue(StackPanel.BorderBrushProperty) == DependencyProperty.UnsetValue);
         }
     }
 

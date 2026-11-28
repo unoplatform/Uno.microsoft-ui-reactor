@@ -6,7 +6,7 @@ This document covers how to apply Windows 11 theme resources correctly in Reacto
 
 WinUI provides 200+ semantic theme resources organized by theme variant (Light, Dark, HighContrast). In XAML you'd use `{ThemeResource}` markup — in Reactor, you use `Theme.*` tokens or `Theme.Ref("ResourceKey")`.
 
-When the reconciler mounts or updates an element with a `ThemeRef`, it resolves the resource by walking `Application.Current.Resources.ThemeDictionaries` to find the brush matching the element's effective theme. When the system theme changes, elements using `ThemeRef` automatically update. Resolutions are cached per `(key, theme)`, so if you replace or add a resource at runtime without a theme change (swap a brand dictionary, replace a brush), call `Theme.NotifyResourcesChanged()` afterwards; it clears the cache and re-renders every host, memoized subtrees included.
+When the reconciler mounts or updates an element with a `ThemeRef`, theme modifiers such as `.Background(Theme.Accent)` set the property through a `{ThemeResource}` reference, so WinUI picks the brush for the element's effective theme. `.Resources(...)` overrides ask WinUI to resolve the key the same way for the element's theme, and `ThemeRef.Resolve(key, isDark)` does it for the theme you pass. Don't read `Application.Current.Resources.ThemeDictionaries[...]` from code for a theme the app isn't using: WinUI creates that entry with the app theme's value and keeps it for every element (issue #1534). When the system theme changes, elements using `ThemeRef` automatically update. Resolutions are cached per `(key, theme)`, so if you replace or add a resource at runtime without a theme change (swap a brand dictionary, replace a brush), call `Theme.NotifyResourcesChanged()` afterwards; it clears the cache and re-renders every host, memoized subtrees included.
 
 ## Theme Token Quick Reference
 
@@ -144,7 +144,7 @@ Border(content)
 
 ## High Contrast
 
-In High Contrast mode, WinUI maps theme resources to one of 8 system color brushes. When you use `Theme.*` tokens, HC resolution happens automatically.
+In High Contrast mode, WinUI maps theme resources to one of 8 system color brushes. When you use `Theme.*` tokens, HC resolution happens automatically: theme modifiers such as `.Background(Theme.CardBackground)` are native `{ThemeResource}` references, and `.Resources(...)` overrides, `ThemeRef.Resolve(key, isDark)` and validation styling ask WinUI for the brush, which picks the `HighContrast` dictionary while a contrast theme is on, whatever `isDark` says. Those resolved brushes are picked once per render, so each host listens for WinUI applying a contrast theme and re-renders then, memoized subtrees included (issue #1506). `UISettings.ColorValuesChanged` arrives before WinUI has switched, so a render it triggers can still pick the old brush; the host also waits for WinUI to apply the contrast theme and refreshes then.
 
 **Allowed HC brushes:**
 

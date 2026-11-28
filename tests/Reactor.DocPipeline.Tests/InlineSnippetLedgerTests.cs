@@ -183,7 +183,7 @@ public class InlineSnippetLedgerTests
     private static readonly Dictionary<string, Dictionary<string, string>> AllowedInlineExamples =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["getting-started"] = new(StringComparer.Ordinal)
+            ["install"] = new(StringComparer.Ordinal)
             {
                 // A .NET file-based app is *defined* by having no .csproj, so it cannot be a doc
                 // app — the snippet mechanism extracts from projects. It stays one contiguous
@@ -193,7 +193,7 @@ public class InlineSnippetLedgerTests
                 // published blog's quick-start, so the two cannot drift.
                 //
                 // What that costs is smaller than it looks. Every construct in the body is
-                // exercised by a compiled snippet on this same page — ReactorApp.Run<T>(string),
+                // exercised by a snippet compiled in the getting-started doc app — ReactorApp.Run<T>(string),
                 // Component/Render, UseState, VStack, Heading and HStack(spacing, …) all appear
                 // in getting-started/hello-world and getting-started/layout-basics, and
                 // UseState + Button(string, Action) in getting-started/usestate-counter. An API
@@ -235,7 +235,7 @@ public class InlineSnippetLedgerTests
                      }
                  }
                  """] =
-                    "File-based app: no .csproj by definition, so it cannot be a doc app. The published blog's quick-start app, plus the BuildTools package that lets dotnet run launch it packaged. Its DSL is covered by the compiled hello-world/usestate-counter/layout-basics snippets on the same page; its header by SingleFileGuideHeaderTests.",
+                    "File-based app: no .csproj by definition, so it cannot be a doc app. The published blog's quick-start app, plus the BuildTools package that lets dotnet run launch it packaged. Its DSL is covered by the compiled getting-started hello-world/usestate-counter/layout-basics snippets; its header by SingleFileGuideHeaderTests.",
 
                 // The one directive that switches the same file to an unpackaged launch. A
                 // fragment by design: the point is the delta, not a second copy of the app.
@@ -666,7 +666,7 @@ public class InlineSnippetLedgerTests
 
     private static IEnumerable<(string Topic, string Path)> Templates()
     {
-        var repoRoot = FindRepoRoot();
+        var repoRoot = TestRepo.Root;
         var dir = Path.Join(repoRoot, TemplatesRelative.Replace('/', Path.DirectorySeparatorChar));
 
         foreach (var file in Directory.EnumerateFiles(dir, "*.md.dt", SearchOption.AllDirectories))
@@ -678,17 +678,5 @@ public class InlineSnippetLedgerTests
             var relative = Path.GetRelativePath(dir, file).Replace(Path.DirectorySeparatorChar, '/');
             yield return (relative[..^".md.dt".Length], file);
         }
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = Directory.GetCurrentDirectory();
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Join(dir, "Reactor.slnx")) || Directory.Exists(Path.Join(dir, ".git")))
-                return dir;
-            dir = Path.GetDirectoryName(dir);
-        }
-        throw new InvalidOperationException("Reactor repo root not found from test cwd.");
     }
 }

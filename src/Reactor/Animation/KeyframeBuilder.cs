@@ -10,6 +10,19 @@ public record KeyframeAnimationDef
     public TimeSpan Duration { get; init; } = TimeSpan.FromMilliseconds(300);
     public bool Loop { get; init; }
     public KeyframeDef[] Keyframes { get; init; } = [];
+
+    /// <summary>
+    /// Compares the keyframes by value, so a definition rebuilt on every render compares equal
+    /// (issue #1702).
+    /// </summary>
+    public virtual bool Equals(KeyframeAnimationDef? other)
+        => ReferenceEquals(this, other)
+            || (other is not null && EqualityContract == other.EqualityContract
+                && Duration == other.Duration && Loop == other.Loop
+                && AnimationEquality.SequenceEqual(Keyframes, other.Keyframes));
+
+    public override int GetHashCode()
+        => HashCode.Combine(EqualityContract, Duration, Loop, AnimationEquality.SequenceHash(Keyframes));
 }
 
 /// <summary>
@@ -20,6 +33,7 @@ public record KeyframeDef(float Progress)
     public float? Opacity { get; init; }
     public Vector3? Scale { get; init; }
     public Vector3? Translation { get; init; }
+    /// <summary>Rotation in degrees, clockwise, like <c>.Rotation()</c>.</summary>
     public float? Rotation { get; init; }
     public Easing? Easing { get; init; }
 }
@@ -45,6 +59,10 @@ public class KeyframeBuilder
         return this;
     }
 
+    /// <summary>
+    /// Adds a keyframe at <paramref name="progress"/> (0 to 1). <c>rotation</c> is in degrees,
+    /// clockwise, like <c>.Rotation()</c>.
+    /// </summary>
     // <snippet:keyframe-anim>
     public KeyframeBuilder At(float progress,
         float? opacity = null, Vector3? scale = null,

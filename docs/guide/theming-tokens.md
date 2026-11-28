@@ -1,4 +1,8 @@
-> **WinUI reference:** For the full property surface and design guidance, see [Colors](https://learn.microsoft.com/en-us/windows/apps/design/style/colors).
+
+# Theming Tokens
+
+Reactor exposes 36 named theme tokens on the static `Theme` class plus a
+`Theme.Ref(string)` escape hatch for any XAML resource key.
 
 A Microsoft.UI.Reactor (Reactor) theme token is a name for a color that the system resolves at render
 time. The same token (`Theme.Accent`) emits a different `Brush`
@@ -13,14 +17,13 @@ a literal because "I'll just hardcode this one"; the
 [REACTOR_THEME_001](rules-of-reactor.md) analyzer catches that at
 build time so it cannot ship.
 
-# Theming Tokens
+Tokens resolve through WinUI's resource system (`XamlControlsResources` +
+the app's `ThemeDictionaries`), so the values they produce match the design
+system Microsoft ships in [WinUI Fluent
+colors](https://learn.microsoft.com/en-us/windows/apps/design/style/colors).
+[Styling](styling.md) shows how to apply them.
 
-Reactor exposes 36 named theme tokens on the static
-[`Theme`](styling.md) class plus a `Theme.Ref(string)` escape hatch
-for any XAML resource key. Tokens resolve through WinUI's resource
-system (`XamlControlsResources` + the app's `ThemeDictionaries`), so
-the values they produce match the design system Microsoft ships in
-[WinUI Fluent colors](https://learn.microsoft.com/en-us/windows/apps/design/style/colors).
+> **WinUI reference:** For the full property surface and design guidance, see [Colors](https://learn.microsoft.com/en-us/windows/apps/design/style/colors).
 
 ## Lead snippet
 
@@ -117,13 +120,16 @@ property update on the host, not a re-render of the component.
 ## How resolution works
 
 [`ThemeRef`](styling.md) is a readonly record struct holding the
-resource key. When a modifier like `.Background(token)` reaches the
-reconciler, the framework walks from the materialized
-[`FrameworkElement`](components.md) up the visual tree looking for the
-nearest `RequestedTheme`, falls back to `ActualTheme`, then
-`Application.RequestedTheme`. The brush for the chosen theme name
-comes from `Application.Resources.ThemeDictionaries[name]` (or the
-nearest merged dictionary).
+resource key. A modifier like `.Background(token)` sets the property
+through a `{ThemeResource}` reference, so WinUI picks the brush for the
+element's effective theme, including an ancestor's `RequestedTheme`.
+`.Resources(...)` overrides find the theme the same way (the nearest
+`RequestedTheme` up the tree, then `ActualTheme`, then
+`Application.RequestedTheme`), and `ThemeRef.Resolve(key, isDark)` uses
+the theme you pass. Both ask WinUI to resolve the key for that theme, as a
+`{ThemeResource}` reference on an element in that theme would. Reactor
+reads an app's own theme dictionaries itself only when WinUI can't find
+the key for that theme.
 
 ```csharp
 class ThemeRefGood : Component

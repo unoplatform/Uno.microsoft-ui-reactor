@@ -13,7 +13,7 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// <remarks>
 /// <para>
 /// The gate groups are named by concatenating their receiver list, which makes <b>set inclusion
-/// equivalent to string prefixing</b>: <c>ControlBorder</c> ⊏ <c>ControlBorderGridStack</c> ⊏
+/// equivalent to string prefixing</b>: <c>ControlBorderGridStack</c> ⊏
 /// <c>ControlBorderGridStackRelative</c> ⊏ <c>…RelativeText</c>. A superset gate cannot help but
 /// have a superset name, so the collision set grows with every gate added and a fix applied to one
 /// pair falls behind on the next.
@@ -29,6 +29,8 @@ namespace Microsoft.UI.Reactor.Tests.AnalyzerTests;
 /// </remarks>
 public class ModifierGateIdentifierTests
 {
+    private const string FormerControlBorder = "ControlBorder";
+
     /// <summary>
     /// Positive control for the reader itself: a broken reader and a table with no gates read the
     /// same on screen, so pin the syntax reader to the typed table in both directions before
@@ -40,18 +42,19 @@ public class ModifierGateIdentifierTests
         var groups = ModifierGateSource.DeclaredGroups;
         var slots = ModifierGateSource.GateSlots;
 
-        // Floors measured on this table: 9 declared string[] groups, 11 gate arguments across
+        // Floors measured on ModifierTable.cs + ModifierSchema.cs: 12 declared string[] groups (one is
+        // the poolable-type mirror, which no gate references), 14 gate arguments across
         // 7 distinct identifiers. They are a non-vacuity guard, not a target — raise them when the
         // table grows, never lower them to make a stalled reader pass.
         Assert.True(
             groups.Count >= 9,
-            $"Only {groups.Count} string[] gate groups were read out of ModifierTable.cs; expected at " +
+            $"Only {groups.Count} string[] gate groups were read out of ModifierTable.cs and ModifierSchema.cs; expected at " +
             "least 9. The declaration reader has probably stopped matching — fix it rather than " +
             "lowering this floor.");
         Assert.True(
             slots.Count >= 11,
             $"Only {slots.Count} controlGate/poolResetGate arguments were read out of " +
-            "ModifierTable.Properties; expected at least 11. The entry reader has probably stopped " +
+            "ModifierTable.Properties and ModifierSchema.Slots; expected at least 11. The entry reader has probably stopped " +
             "matching — fix it rather than lowering this floor.");
         Assert.True(
             slots.Select(slot => slot.Identifier).Distinct(StringComparer.Ordinal).Count() >= 7,
@@ -121,7 +124,7 @@ public class ModifierGateIdentifierTests
 
         Assert.True(
             problems.Count == 0,
-            "The ModifierTable.cs gate reader has drifted from the typed table it is supposed to " +
+            "The ModifierTable.cs / ModifierSchema.cs gate reader has drifted from the typed table it is supposed to " +
             "mirror, so every text-matching fact below would be measuring the wrong thing:\n  " +
             string.Join("\n  ", problems));
     }
@@ -195,9 +198,12 @@ public class ModifierGateIdentifierTests
     [Fact]
     public void Substring_Matching_Accepts_A_Wider_Gate_Where_Boundary_Matching_Does_Not()
     {
-        var identifiers = ModifierGateSource.GateSlots
-            .Select(slot => slot.Identifier)
-            .Distinct(StringComparer.Ordinal)
+        // Keep the removed group as a test-only needle: asking for it must not
+        // match PanelControlBorder, even though that name contains the needle.
+        var groups = ModifierGateSource.DeclaredGroups.ToDictionary(
+            group => group.Key, group => group.Value, StringComparer.Ordinal);
+        groups.Add(FormerControlBorder, new[] { "Control", "Border" });
+        var identifiers = groups.Keys
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
@@ -224,9 +230,9 @@ public class ModifierGateIdentifierTests
                 {
                     // Properties carrying the WIDE gate in this slot. A check asking "does this
                     // property have the NARROW gate?" must answer no for every one of them.
-                    var exposed = PropertiesCarrying(slot, ModifierGateSource.DeclaredGroups[wide])
+                    var exposed = PropertiesCarrying(slot, groups[wide])
                         .Except(
-                            PropertiesCarrying(slot, ModifierGateSource.DeclaredGroups[narrow]),
+                            PropertiesCarrying(slot, groups[narrow]),
                             StringComparer.Ordinal)
                         .ToList();
 
@@ -291,6 +297,7 @@ public class ModifierGateIdentifierTests
     {
         var identifiers = ModifierGateSource.GateSlots
             .Select(slot => slot.Identifier)
+            .Append(FormerControlBorder)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();

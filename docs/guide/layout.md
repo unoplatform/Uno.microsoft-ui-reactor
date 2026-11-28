@@ -1,4 +1,8 @@
-> **WinUI reference:** For the full property surface and design guidance, see [Layout](https://learn.microsoft.com/en-us/windows/apps/design/layout/).
+
+# Layout
+
+Reactor provides a small set of layout primitives that compose to build any
+screen structure. Every layout element accepts children and optional spacing.
 
 Every Microsoft.UI.Reactor (Reactor) layout is a composition of single-responsibility panels —
 you pick by *direction* (`HStack` for a row, `VStack` for a column),
@@ -17,10 +21,7 @@ the moment you have row-and-column alignment; switch to
 [`FlexRow`/`FlexColumn`](flex-layout.md) when you need ratio-based
 sizing or multi-line wrapping with gaps.
 
-# Layout
-
-Reactor provides a small set of layout primitives that compose to build any
-screen structure. Every layout element accepts children and optional spacing.
+> **WinUI reference:** For the full property surface and design guidance, see [Layout](https://learn.microsoft.com/en-us/windows/apps/design/layout/).
 
 ## Decision table
 
@@ -151,7 +152,7 @@ without code changes — see [styling](styling.md).
 
 ## Type-Ramp Factories
 
-For headings and body copy that match the WinUI 3 type ramp, use the
+For headings and body copy that match the WinUI type ramp, use the
 named factories instead of repeating `.FontSize(...).Bold()` chains:
 
 ```csharp
@@ -170,7 +171,7 @@ class TypeRampDemo : Component
 }
 ```
 
-![WinUI 3 type ramp: Title / Subtitle / BodyLarge / BodyStrong / Body](images/layout/type-ramp.png)
+![WinUI type ramp: Title / Subtitle / BodyLarge / BodyStrong / Body](images/layout/type-ramp.png)
 
 | Factory | WinUI style |
 |---------|-------------|
@@ -269,9 +270,31 @@ class ExpanderCanvasDemo : Component
 internally. Pass `isExpanded: true` to start expanded, or use
 `onExpandedChanged` to track the state yourself.
 
+Use `.HeaderContent(element)` for a composed header. Its `Element?` record property
+is also named `HeaderContent`; a non-null value overrides the string `Header`.
+Reactor mounts this child into the native control's `Header` property and reconciles
+its subtree normally. Setting `HeaderContent` back to `null` restores the string
+header. The native `HeaderTemplate` is a separate `DataTemplate` property.
+
 `Canvas` positions children using the `.Set()` modifier to call
 `Canvas.SetLeft` and `Canvas.SetTop`. Use it for overlays, diagrams, or
 any layout that doesn't follow a stack or grid pattern.
+
+### Migration: `Expander.HeaderTemplate` renamed to `HeaderContent`
+
+**Breaking change:** the old Element-valued `HeaderTemplate` property and fluent
+method have been removed. Rename both call styles:
+
+| Previous API | Replacement |
+| --- | --- |
+| `.HeaderTemplate(headerElement)` | `.HeaderContent(headerElement)` |
+| `with { HeaderTemplate = headerElement }` | `with { HeaderContent = headerElement }` |
+
+Update direct property reads to `.HeaderContent` as well. The value remains an
+`Element?`, with the same string-fallback and child-lifecycle behavior; no template
+conversion is needed. This is a source and binary breaking change: recompile
+consumers that referenced the old API. Native `.Set(c => c.HeaderTemplate = template)`
+calls still refer to WinUI's `DataTemplate` property and should retain their name.
 
 ## Responsive Layout
 
@@ -299,7 +322,7 @@ class ResponsiveDemo : Component
             SubHeading("Responsive Layout"),
             HStack(8,
                 TextBlock("Simulate wide screen:"),
-                ToggleSwitch(wide, setWide)
+                ToggleSwitch(wide, setWide).AutomationName("Simulate wide screen")
             ),
             If(wide,
                 () => HStack(12, content),
@@ -511,7 +534,7 @@ class ResponsiveSwitcherExample : Component
         return VStack(8,
             HStack(8,
                 TextBlock("Simulate wide window:"),
-                ToggleSwitch(simulated, setSimulated)),
+                ToggleSwitch(simulated, setSimulated).AutomationName("Simulate wide window")),
             If(simulated,
                 () => HStack(12, panels),
                 () => VStack(8, panels))

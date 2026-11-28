@@ -19,7 +19,10 @@ namespace Microsoft.UI.Reactor.Core.V1Protocol.Descriptor;
 ///   <item><see cref="Mount(TControl, TElement)"/> runs once per entry. Controlled entries write
 ///   their initial value bare — event subscription has not yet been wired,
 ///   so a synchronous change event has no trampoline to fire (no echo).
-///   Mirrors the KD-1b fix on the hand-coded handlers.</item>
+///   Mirrors the KD-1b fix on the hand-coded handlers. A control whose change
+///   event is raised after the write returns echoes after the wiring below;
+///   its entry arms the Mount write instead (<c>HandCodedControlled</c>'s
+///   <c>armOnMount</c>).</item>
 ///   <item><see cref="EnsureSubscribed"/> runs once per entry. Controlled
 ///   entries subscribe to their change event here, guarded by
 ///   <see cref="DescriptorHandler{TElement,TControl}"/>'s per-control
@@ -252,7 +255,7 @@ internal sealed class InitialOnlyPropEntry<TElement, TControl, TValue> : PropEnt
 /// the closed generic — captures nothing, allocates nothing per mount.
 /// Per-entry state (<c>_readBack</c>, <c>_getCallback</c>) lives on a
 /// per-control <see cref="DescriptorControlledPayload{TElement,TControl,TValue,TArgs}"/>
-/// stashed via <see cref="Reconciler.GetOrCreateControlEventPayload{T}"/>,
+/// stashed via <see cref="ModifierEvents.GetOrCreateControlEventPayload{T}"/>,
 /// which survives pool rent/return (KD-3 invariant). Subsequent mounts of
 /// the same control hit the null-slot check and skip the subscription
 /// entirely — zero allocations on the re-mount fast path.</para>
@@ -284,7 +287,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
         // suppression check, and live-element resolution (was three GetValue
         // reads: TryGetControlEventPayload + ShouldSuppress + GetElementTag).
         if (!Reconciler.TryGetReactorState(fe, out var state)) return;
-        var payload = Reconciler.TryGetControlEventPayload<
+        var payload = ModifierEvents.TryGetControlEventPayload<
             DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(state);
 
         // Counter / setter-scope suppression still wins on this control: an
@@ -354,7 +357,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
         // §8 PoC: clear any value-diff arm left on a pooled payload from a prior
         // lifecycle (the payload survives pool rent/return per KD-3) so it can't
         // suppress this lifecycle's first real event.
-        var pooled = Reconciler.TryGetControlEventPayload<
+        var pooled = ModifierEvents.TryGetControlEventPayload<
             DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(ctrl);
         if (pooled is not null)
         {
@@ -396,7 +399,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
         // it does not, there is no subscription, hence no echo to suppress.
         if (_getCallback(newEl) is not null)
         {
-            var payload = Reconciler.TryGetControlEventPayload<
+            var payload = ModifierEvents.TryGetControlEventPayload<
                 DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(ctrl);
             if (payload is not null)
             {
@@ -419,7 +422,7 @@ internal sealed class ControlledPropEntry<TElement, TControl, TValue, TArgs> : P
         // subscription cost (M4/M5 dispatch suites).
         if (_getCallback(el) is null) return;
 
-        var payload = Reconciler.GetOrCreateControlEventPayload<
+        var payload = ModifierEvents.GetOrCreateControlEventPayload<
             DescriptorControlledPayload<TElement, TControl, TValue, TArgs>>(ctrl);
         if (payload.Trampoline is not null) return; // already wired for this control's lifetime
 
@@ -476,7 +479,7 @@ internal sealed class ReferencePropEntry<TElement, TControl, TTarget> : PropEntr
         TElement el)
     {
         var cell = _get(el)?.Inner;
-        Reconciler.WireReferenceEdge(
+        ReferenceEdgeWiring.WireReferenceEdge(
             ctrl,
             _slot,
             cell,
@@ -525,7 +528,7 @@ internal sealed class UntypedReferencePropEntry<TElement, TControl> : PropEntry<
         TControl ctrl,
         TElement el)
     {
-        Reconciler.WireReferenceEdge(
+        ReferenceEdgeWiring.WireReferenceEdge(
             ctrl,
             _slot,
             _get(el),
@@ -584,7 +587,7 @@ internal sealed class ReferenceListPropEntry<TElement, TControl, TTarget> : Prop
                     cells.Add(r.Inner);
         }
 
-        Reconciler.WireReferenceListEdge(
+        ReferenceEdgeWiring.WireReferenceListEdge(
             ctrl,
             _slot,
             cells,
@@ -674,14 +677,17 @@ internal sealed class DescriptorControlledPayload<TElement, TControl, TValue, TA
 /// the control's event signature directly — no
 /// <c>EventHandler&lt;TArgs&gt;</c> bridge closure).</para>
 ///
-/// <para><b>Mount / Update writes:</b> identical to
-/// <see cref="ControlledPropEntry{TElement,TControl,TValue,TArgs}"/> — bare
-/// at Mount, <see cref="ReactorBinding.WriteSuppressed(UIElement,Action)"/>
-/// at Update on element-change OR control-drift.</para>
+/// <para><b>Mount / Update writes:</b> both write only on control drift
+/// (readback differs from the element value). Mount writes bare. Update wraps
+/// the write in <see cref="ReactorBinding.WriteSuppressed(UIElement,Action)"/>,
+/// or, with <c>valueDiffEcho</c>, arms the spec 047 §8 value-diff echo and
+/// writes bare. With <c>armOnMount</c> the Mount write is armed the same way,
+/// for a control whose change event is raised after the write returns (so the
+/// Mount write's echo reaches the trampoline wired right after it).</para>
 ///
 /// <para><b>Subscription gate:</b> if the element's callback selector
 /// returns null, no subscription happens. On non-null, the entry calls
-/// <see cref="Reconciler.GetOrCreateControlEventPayload{T}"/> for the
+/// <see cref="ModifierEvents.GetOrCreateControlEventPayload{T}"/> for the
 /// user's payload type, checks the slot-is-null predicate, and (if empty)
 /// stuffs the trampoline into the payload slot and subscribes — exactly
 /// once per control lifetime. Subsequent rents of the same control hit
@@ -702,6 +708,7 @@ internal sealed class HandCodedControlledPropEntry<TElement, TControl, TPayload,
     private readonly Action<TPayload, TDelegate> _setSlot;
     private readonly IEqualityComparer<TValue> _comparer;
     private readonly bool _valueDiffEcho;
+    private readonly bool _armOnMount;
 
     public HandCodedControlledPropEntry(
         Func<TElement, Optional<TValue>> get,
@@ -713,8 +720,12 @@ internal sealed class HandCodedControlledPropEntry<TElement, TControl, TPayload,
         Func<TPayload, bool> slotIsNull,
         Action<TPayload, TDelegate> setSlot,
         IEqualityComparer<TValue>? comparer = null,
-        bool valueDiffEcho = false)
+        bool valueDiffEcho = false,
+        bool armOnMount = false)
     {
+        if (armOnMount && !valueDiffEcho)
+            throw new ArgumentException(
+                "armOnMount arms the value-diff echo, so it requires valueDiffEcho.", nameof(armOnMount));
         _get = get;
         _set = set;
         _readBack = readBack;
@@ -725,20 +736,30 @@ internal sealed class HandCodedControlledPropEntry<TElement, TControl, TPayload,
         _setSlot = setSlot;
         _comparer = comparer ?? EqualityComparer<TValue>.Default;
         _valueDiffEcho = valueDiffEcho;
+        _armOnMount = armOnMount;
     }
 
     public override void Mount(TControl ctrl, TElement el)
     {
         // §8 value-diff: clear any stale arm left on a pooled control so it
-        // can't suppress this lifecycle's first real event. Mount writes are
-        // bare (subscription not yet wired), so no arming here.
+        // can't suppress this lifecycle's first real event.
         if (_valueDiffEcho)
             ChangeEchoSuppressor.ClearExpectedEcho(ctrl);
 
         var vOpt = _get(el);
         if (!vOpt.HasValue) return;
         var v = vOpt.Value;
-        if (!_comparer.Equals(_readBack(ctrl), v))
+        if (_comparer.Equals(_readBack(ctrl), v))
+            return;
+
+        // The trampoline is wired after the Mount writes (DescriptorHandler
+        // phase 2). A synchronous echo fires before that and reaches nothing,
+        // so the write stays bare. A deferred echo (armOnMount, e.g.
+        // RichEditBox's Document.SetText) lands after the wiring, so it is
+        // armed like an Update write.
+        if (_armOnMount)
+            WriteArmed(ctrl, el, v);
+        else
             _set(ctrl, v);
     }
 
@@ -755,33 +776,38 @@ internal sealed class HandCodedControlledPropEntry<TElement, TControl, TPayload,
             return;
 
         // §8 value-diff (opt-in via valueDiffEcho): arm the per-control expected
-        // echo instead of bumping the causal counter, then write bare. The
-        // hand-written trampoline drops the single synthesized echo whose
-        // readback matches via ShouldSuppressEcho. Arm only when a callback is
-        // present (otherwise nothing is subscribed to echo). The control's event
-        // fires synchronously inside _set, so a trampoline that is not yet wired
-        // (null→non-null callback transition) simply produces no echo — no strand.
+        // echo instead of bumping the causal counter, then write bare. Update
+        // wires the trampoline before this loop (spec 050), so the echo reaches
+        // it whether the control raises it inside _set or later.
         if (_valueDiffEcho)
-        {
-            if (_getCallback(newEl) is not null)
-            {
-                var expected = nv;
-                var cmp = _comparer;
-                ChangeEchoSuppressor.ArmExpectedEcho(
-                    ctrl, rb => cmp.Equals(rb is TValue tv ? tv : default!, expected));
-            }
-            _set(ctrl, nv);
-            // If a guarded/coerced setter (e.g. `if (v >= 0) ...`, bounds checks)
-            // dropped the write, the synchronous echo never fired to consume the
-            // arm. Clear it so it can't strand and swallow a later real event
-            // whose readback happens to equal the never-applied value.
-            if (!_comparer.Equals(_readBack(ctrl), nv))
-                ChangeEchoSuppressor.ClearExpectedEcho(ctrl);
-        }
+            WriteArmed(ctrl, newEl, nv);
         else
-        {
             ReactorBinding.WriteSuppressed(ctrl, () => _set(ctrl, nv));
+    }
+
+    // §8 value-diff write. The hand-written trampoline consumes the arm on the
+    // next change event (ShouldSuppressEcho) and drops that event only when its
+    // readback matches, so the event may come inside _set (synchronous controls)
+    // or after it returns (deferred ones: RichEditBox, AutoSuggestBox). A user
+    // edit that lands first has a different readback, so it consumes the arm and
+    // still reaches the callback. Arm only when a callback is present: with none,
+    // the trampoline is not wired for this element and nothing would consume it.
+    private void WriteArmed(TControl ctrl, TElement el, TValue v)
+    {
+        if (_getCallback(el) is not null)
+        {
+            var expected = v;
+            var cmp = _comparer;
+            ChangeEchoSuppressor.ArmExpectedEcho(
+                ctrl, rb => cmp.Equals(rb is TValue tv ? tv : default!, expected));
         }
+        _set(ctrl, v);
+        // If a guarded/coerced setter (e.g. `if (v >= 0) ...`, bounds checks,
+        // RichEditBox skipping "") dropped the write, no echo will come to
+        // consume the arm. Clear it so it can't strand and swallow a later real
+        // event whose readback happens to equal the never-applied value.
+        if (!_comparer.Equals(_readBack(ctrl), v))
+            ChangeEchoSuppressor.ClearExpectedEcho(ctrl);
     }
 
     public override void EnsureSubscribed(
@@ -790,7 +816,7 @@ internal sealed class HandCodedControlledPropEntry<TElement, TControl, TPayload,
         TElement el)
     {
         if (_getCallback(el) is null) return;
-        var payload = Reconciler.GetOrCreateControlEventPayload<TPayload>(ctrl);
+        var payload = ModifierEvents.GetOrCreateControlEventPayload<TPayload>(ctrl);
         if (!_slotIsNull(payload)) return;
         _setSlot(payload, _trampoline);
         _subscribe(ctrl, _trampoline);
@@ -843,7 +869,7 @@ internal sealed class HandCodedEventPropEntry<TElement, TControl, TPayload, TDel
         TElement el)
     {
         if (_callbackPresent(el) is null) return;
-        var payload = Reconciler.GetOrCreateControlEventPayload<TPayload>(ctrl);
+        var payload = ModifierEvents.GetOrCreateControlEventPayload<TPayload>(ctrl);
         if (!_slotIsNull(payload)) return;
         _setSlot(payload, _trampoline);
         _subscribe(ctrl, _trampoline);
@@ -944,7 +970,7 @@ internal sealed class ImperativePropEntry<TElement, TControl> : PropEntry<TEleme
 ///
 /// <para>Canonical use is a secondary Element slot whose write target
 /// overlaps with a sibling property — e.g.
-/// <c>Expander.HeaderTemplate</c> reconciles into the same
+/// <c>Expander.HeaderContent</c> reconciles into the same
 /// <c>Header</c> property the string <c>Header</c> writes to. See
 /// <c>ControlDescriptor.ImperativeBridged</c>
 /// for the composition recipe.</para></summary>
@@ -1126,7 +1152,7 @@ internal sealed class ImmediatePropEntry<TElement, TControl, TPayload> : PropEnt
         TElement el)
     {
         if (_callbackGate(el) is null) return;
-        var payload = Reconciler.GetOrCreateControlEventPayload<TPayload>(ctrl);
+        var payload = ModifierEvents.GetOrCreateControlEventPayload<TPayload>(ctrl);
         if (!_observeSlotIsNull(payload)) return;
         _setObserveSlot(payload, _observeCallback);
         ctrl.RegisterPropertyChangedCallback(_observeProperty, _observeCallback);
@@ -1246,7 +1272,7 @@ internal sealed class CollectionDiffControlledPropEntry<TElement, TControl, TPay
         TElement el)
     {
         if (_callbackPresent(el) is null) return;
-        var payload = Reconciler.GetOrCreateControlEventPayload<TPayload>(ctrl);
+        var payload = ModifierEvents.GetOrCreateControlEventPayload<TPayload>(ctrl);
         if (!_slotIsNull(payload)) return;
         _setSlot(payload, _trampoline);
         _subscribe(ctrl, _trampoline);

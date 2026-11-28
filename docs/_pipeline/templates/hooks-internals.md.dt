@@ -14,6 +14,12 @@ goal: |
 tier: comprehensive
 ---
 
+# Hooks Internals
+
+One description of the storage shape behind every hook — enough to debug a
+`HookOrderException`, predict whether `UseState` returns a stable setter,
+and know when reaching for `UseRef` is correct.
+
 A hook in Microsoft.UI.Reactor (Reactor) is a position. When `Render()` runs, the framework
 counts each hook call in order — `UseState` is slot 0, then `UseEffect`
 is slot 1, then `UseMemo` is slot 2 — and stores whatever each hook
@@ -31,14 +37,8 @@ type check on the slot throws `HookOrderException` because the slot
 that used to hold `ValueHookState<int>` now sees a `EffectHookState`
 asking for its bucket.
 
-# Hooks Internals
-
-This page absorbs the legacy `docs/reference/state-and-hooks.md` and
-sits underneath the surface-level [Hooks](hooks.md) reference. The
-goal is one description of the storage shape behind every hook —
-enough to debug a `HookOrderException`, predict whether `UseState`
-returns a stable setter, and know when reaching for `UseRef` is
-correct.
+This page absorbs the legacy `docs/reference/state-and-hooks.md` and sits
+underneath the surface-level [Hooks](hooks.md) reference.
 
 ## The slot table
 
@@ -112,7 +112,11 @@ reaches its storage directly and never consults `_hooks` again. Calling
 it on a background thread takes the `MarshalIfOffUIThread` branch and
 re-enqueues the setter on the UI dispatcher; calling it from the UI
 thread runs the body inline. (The `threadSafe: true` flavour skips the
-marshal entirely and takes the slot's lock instead.) Either way, the
+marshal entirely and takes the slot's lock instead.) The marshaled
+argument closure is created in a separate slow-path function, only for
+off-thread calls. Inline setters, functional updaters, and reducer
+dispatches do not allocate that closure, including unchanged-value calls.
+Either way, the
 slot is written with the new value, an ETW
 `StateChange` event fires if state-keyword tracing is enabled, and
 `_requestRerender` triggers the host to render again on the next

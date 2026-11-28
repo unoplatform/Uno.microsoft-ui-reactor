@@ -34,6 +34,24 @@ internal interface IChildCollection
     }
 }
 
+internal static class ChildCollectionExtensions
+{
+    /// <summary>
+    /// Puts <paramref name="newControl"/> in the slot <paramref name="oldControl"/> held at
+    /// <paramref name="index"/>, after <paramref name="oldControl"/> was unmounted. An unmount
+    /// can detach the control itself (Win2D's <c>RemoveFromVisualTree</c> does), and replacing
+    /// by index would then remove the next sibling, or throw when it was last, so this inserts
+    /// into the gap instead.
+    /// </summary>
+    internal static void ReplaceUnmounted(this IChildCollection children, int index, UIElement oldControl, UIElement newControl)
+    {
+        if (index < children.Count && ReferenceEquals(children.Get(index), oldControl))
+            children.Replace(index, newControl);
+        else
+            children.Insert(index, newControl);
+    }
+}
+
 /// <summary>
 /// Wraps Panel.Children (StackPanel, Grid, Canvas, etc.).
 /// </summary>
@@ -58,8 +76,26 @@ internal sealed class PanelChildCollection : IChildCollection
     public int Count => _children.Count;
     public UIElement Get(int index) => _children[index];
     public int IndexOf(UIElement element) => _children.IndexOf(element);
-    public void Insert(int index, UIElement element) => _children.Insert(index, element);
-    public void RemoveAt(int index) => _children.RemoveAt(index);
+
+    // Edits made through this wrapper, for the perf ChildReconcile span. Each reconcile of a
+    // container gets a fresh wrapper, so these are that reconcile's own edits. A plain
+    // increment next to a WinUI collection call, so it is kept unconditionally.
+    internal uint InsertCount { get; private set; }
+    internal uint RemoveCount { get; private set; }
+    internal uint MoveCount { get; private set; }
+    internal uint ReplaceCount { get; private set; }
+
+    public void Insert(int index, UIElement element)
+    {
+        _children.Insert(index, element);
+        InsertCount++;
+    }
+
+    public void RemoveAt(int index)
+    {
+        _children.RemoveAt(index);
+        RemoveCount++;
+    }
 
     public void Move(int oldIndex, int newIndex)
     {
@@ -72,6 +108,7 @@ internal sealed class PanelChildCollection : IChildCollection
         // After RemoveAt, inserting at newIndex places the item at that index
         // in the resulting collection.
         _children.Insert(newIndex, item);
+        MoveCount++;
     }
 
     public void Replace(int index, UIElement element)
@@ -82,5 +119,6 @@ internal sealed class PanelChildCollection : IChildCollection
         // element is later reused from the pool.
         _children.RemoveAt(index);
         _children.Insert(index, element);
+        ReplaceCount++;
     }
 }

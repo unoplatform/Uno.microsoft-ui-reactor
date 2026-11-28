@@ -22,7 +22,7 @@ The doc pipeline needs:
 
 | Tool             | Purpose                                | Required for                |
 |------------------|----------------------------------------|-----------------------------|
-| .NET 10 SDK      | Building the pipeline + doc apps       | Always                      |
+| .NET 11 SDK + .NET 10 runtime | Building the pipeline + doc apps (`net10.0`) | Always |
 | Windows App SDK  | Doc apps render WinUI controls         | Screenshot capture          |
 | Windows Graphics Capture | Captures the doc app window (Windows 10 2004 / build 19041+, interactive desktop) | Screenshot capture |
 | Node.js 20+      | Hosts `mermaid-cli`                    | `.mmd` → `.svg` diagrams    |
@@ -153,6 +153,15 @@ dotnet run --project tools/Reactor.DocPipeline -- check-tier --tier solid --ci
 # Skip costly phases for inner-loop iteration
 dotnet run --project tools/Reactor.DocPipeline -- compile --skip-screenshots --skip-diagrams
 
+# Regenerate only the API reference (Phase 5.7), leaving the guide pages alone.
+# Exits 1 when an input is missing or an error finding is reported.
+dotnet run --project tools/Reactor.DocPipeline -- compile --reference-only
+
+# Also write the nav.json groups for the reference pages to a file. The
+# reference groups in docs/_website/nav.json must match it;
+# ReferenceNavTests fails when they drift.
+dotnet run --project tools/Reactor.DocPipeline -- compile --reference-only --reference-nav-out ref-nav.json
+
 # Render diagrams only (fast Mermaid loop)
 dotnet run --project tools/Reactor.DocPipeline -- render-diagrams --topic architecture-overview
 
@@ -160,11 +169,44 @@ dotnet run --project tools/Reactor.DocPipeline -- render-diagrams --topic archit
 dotnet run --project tools/Reactor.DocPipeline -- new-diagram architecture-overview overview
 ```
 
-### Which `Reactor.xml` the reference phase reads
+For `render-diagrams --topic` and the first argument to `new-diagram`, use the
+name of a top-level directory under `docs/_pipeline/diagrams`, such as
+`architecture-overview`. Both commands report an error on stderr and return
+exit code `1` if the topic is rooted or normalizes to a path outside that
+directory. Before creating the topic directory, `new-diagram` verifies that
+the ID is relative and that the resulting `.mmd` path stays inside the topic.
+
+### Running the doc pipeline tests
+
+Run the xUnit suite from the repository root.
+
+```powershell
+dotnet test tests/Reactor.DocPipeline.Tests/Reactor.DocPipeline.Tests.csproj -p:Platform=x64
+```
+
+Tests that read files from the checkout use [`TestRepo.Root`](../../tests/Reactor.DocPipeline.Tests/TestRepo.cs).
+It calls the shared [`RepoRootFinder`](../../src/Reactor.Cli/Pack/RepoRootFinder.cs),
+which walks up from `AppContext.BaseDirectory` until it finds a directory containing
+`src/Reactor/Reactor.csproj`. This selects the worktree containing the test output
+even when the process working directory is in a sibling checkout.
+
+[`TestRepoTests`](../../tests/Reactor.DocPipeline.Tests/TestRepoTests.cs) verifies
+this behavior by switching to a temporary directory with its own
+`src/Reactor/Reactor.csproj` and checking that `TestRepo.Root` still selects the
+checkout containing the test output.
+
+### Which `Microsoft.UI.Reactor.xml` the reference phase reads
 
 Phase 5.7 generates `docs/guide/reference/**` from the XML doc comments the C#
-compiler emits, so it needs a *built* `src/Reactor`. It reads the **most recently
-written** `Reactor.xml` anywhere under `src/Reactor/bin` — configuration plays no
+compiler emits, so it needs a *built* `src/Reactor` and a built `src/Reactor.Advanced`.
+The reference documents both packages as one merged model ([issue #1721][i1721]):
+types, crefs and base types resolve across them, and pages for Advanced APIs say
+`Package: Microsoft.UI.Reactor.Advanced`. Each assembly's XML is chosen the same way,
+from its own project's `bin` (`Microsoft.UI.Reactor.Advanced.xml` under
+`src/Reactor.Advanced/bin`). The rest of this section describes the core file.
+
+It reads the **most recently
+written** `Microsoft.UI.Reactor.xml` anywhere under `src/Reactor/bin` — configuration plays no
 part in the choice, and neither does the directory layout, so flat
 `bin/<config>/<tfm>/`, platform-stamped `bin/<arch>/<config>/<tfm>/` and
 RID-nested publish outputs are all candidates. The one thing it won't descend
@@ -177,7 +219,7 @@ It prints what it picked:
 
 ```
 ═══ Phase 5.7: Reference ═══
-  XML: src/Reactor/bin/x64/Release/net10.0-windows10.0.22621.0/Reactor.xml (2026-08-01T19:45:14Z, newest of 3 candidate(s))
+  XML: src/Reactor/bin/x64/Release/net10.0-windows10.0.22621.0/Microsoft.UI.Reactor.xml (2026-08-01T19:45:14Z, newest of 3 candidate(s))
 ```
 
 Read that line if a regenerated reference page disagrees with the source you just
@@ -194,24 +236,32 @@ separately: the phase compares the chosen XML against the newest `.cs` under
 with [`REACTOR_DOC_REFGEN_W002`](#6-snippet--image--diagram-error-codes) when the
 source is newer. Run `dotnet build src/Reactor` and compile again.
 
-If no `Reactor.xml` exists at all, **a local compile** skips reference generation
+If no `Microsoft.UI.Reactor.xml` exists at all, **a local compile** skips reference generation
 rather than failing, printing:
 
 ```
-  (Reactor.xml not found — run `dotnet build src/Reactor` first)
+  (Microsoft.UI.Reactor.xml not found — run `dotnet build src/Reactor` first)
 ```
 
 That degradation is deliberate: on a first compile you should still get your
 guide pages. Under `--ci` the same condition **exits 1** instead. CI always
 builds, so a missing input there means the run is not the run that was asked
-for, and skipping the phase would leave the ~117 pages under
+for, and skipping the phase would leave the pages under
 `docs/guide/reference/` silently at whatever was committed. The same applies to
-a missing `reference-map.yaml`. `ReferenceStalenessWiringTests` pins both
-directions.
+a missing `reference-map.yaml`, and to a missing `Microsoft.UI.Reactor.Advanced.xml`:
+generating from core alone would prune every Advanced page as stale.
+`ReferenceStalenessWiringTests` pins both directions.
+
+The phase also reads `Microsoft.UI.Reactor.dll` from the same folder as the XML
+file. If the XML file is there but the DLL is not, it reports
+[`REACTOR_DOC_REFGEN_003`](#6-snippet--image--diagram-error-codes) and writes
+and deletes nothing, so the committed pages stay as they are.
 
 CI does build it. The `docs-build` job runs `docs compile --no-screenshots --ci`
 *without* `--no-build`, so Phase 2 builds every doc app, each of which
-`ProjectReference`s `src/Reactor/Reactor.csproj` — reference generation therefore
+`ProjectReference`s `src/Reactor/Reactor.csproj`, and several of them (charting,
+docking, Win2D canvas, data system, among others) also reference `src/Reactor.Advanced` —
+reference generation therefore
 runs for real on every PR. `REACTOR_DOC_REFGEN_W002` still stays quiet there, for
 an ordering reason rather than a missing-build one: `actions/checkout` writes the
 sources before that build runs, so the emitted XML always postdates every `.cs`.
@@ -223,6 +273,7 @@ compile, and that reading is only sound if every page was actually written — s
 the non-zero exit above is what the gate stands on.
 
 [i1068]: https://github.com/microsoft/microsoft-ui-reactor/issues/1068
+[i1721]: https://github.com/microsoft/microsoft-ui-reactor/issues/1721
 
 ### Screenshots and committed images
 
@@ -500,6 +551,24 @@ the compile still exited 0 ([issue #989][i989]). Several guards now prevent that
   pass that looks like it is working for hours instead of failing in seconds,
   which is the same "no output is not evidence of no problem" shape as the rest of
   this list.
+- A painted frame can still be Reactor's **render-error panel**: a red-bordered
+  exception dump that passes every pixel guard above. Two committed screenshots
+  were exactly that (`components/props-component` previewed `Alert`, a
+  `Component<AlertProps>`, with null `Props`; `win2d-canvas/virtual` hit a
+  reconciler bug on the component switch). So after each capture the client reads
+  `renderError` from the preview host's `/status`. The host records the first
+  render error that replaced content since the last component switch, through an
+  internal observer on `RenderErrorDispatch` that sees those errors whatever
+  `RenderErrorHandler` the app set. Until the switched-to component has completed
+  a render, `renderError` reports the switch as pending, because the window still
+  shows the previous component. Capture waits up to 10 s for that to clear, and
+  refuses the screenshot without taking a frame if it does not. A non-null value
+  after the capture fails that screenshot with
+  `REACTOR_DOC_SHOT_003` and writes nothing. A `/status` that cannot be read, or
+  that lacks the field, fails closed the same way. Errors caught by an
+  `ErrorBoundary` never reach the observer, so the error-boundary samples still
+  capture. A `Component<TProps>` cannot be a manifest `component:` on its own;
+  point the manifest at a small wrapper that renders it with props.
 - A topic or screenshot id containing `:` is refused before it is joined to any
   output root, and so is a `:` in a markdown image reference. Containment alone
   does not cover it: on Windows `:` is a stream
@@ -599,7 +668,7 @@ reference-generation codes.
 | `REACTOR_DOC_TIER_005`| No reference table in first half                       | error    |
 | `REACTOR_DOC_TIER_006`| Missing `## Tips` heading                              | error    |
 | `REACTOR_DOC_TIER_007`| Missing `## Next Steps` heading or fewer than 3 links  | error    |
-| `REACTOR_DOC_TIER_008`| No mental-model lead paragraph (≥80 words)             | error    |
+| `REACTOR_DOC_TIER_008`| No mental-model lead (≥80 words before the first `##`)  | error    |
 | `REACTOR_DOC_TIER_009`| No `<!-- ai:caveat -->` block                          | error    |
 | `REACTOR_DOC_TIER_010`| Missing `## Patterns` heading                          | error    |
 | `REACTOR_DOC_TIER_011`| Missing `## Common Mistakes` heading                   | error    |
@@ -621,9 +690,10 @@ reference-generation codes.
 | `REACTOR_DOC_IMAGE_004`    | *(warning — does **not** fail `--ci`)* The blank-image gate could not run: `System.Drawing.Common` is Windows-only, so on any other platform there is no decoder. Emitted **once per page** — the condition is a property of the machine, not of any image, so one finding per screenshot would bury it. Nothing else is suppressed: reference validation (`_001`) and the decoder-free checks behind `_003` (zero-byte file, no PNG/JPEG signature) still run everywhere. Never fires on the supported configuration. It is the one non-fatal finding this gate emits, and deliberately so: it says the scan *could not run*, not that an image is bad, and it fires precisely on the platform that cannot decode — so breaking the build on it would fail a docs compile over a missing codec while nothing is wrong with the docs |
 | `REACTOR_DOC_SHOT_001`     | Captured frame was contentless; nothing was written and the existing screenshot was left untouched. The message names which clause fired — *no pixel below the threshold* or *one flat colour* — because for a dark fill the first wording states the opposite of what happened |
 | `REACTOR_DOC_SHOT_002`     | Manifest screenshot id ends in the reserved `-thumb` suffix without `kind: catalog-thumb`. Matched against the whole id, so a dotted id (`widget.v2-thumb`) is caught too |
-| `REACTOR_DOC_REGISTRY_W001`| Registry rule maps to a category with no `guide-pages`     |
+| `REACTOR_DOC_SHOT_003`     | The preview host did not show the requested component cleanly: a render error replaced content, the component switch had not rendered yet, or `/status` could not be read or does not report `renderError`. Nothing was written. A null reference usually means a `Component<TProps>` named directly in the manifest (its `Props` is null when previewed alone); point the manifest at a wrapper that renders it with props |
 | `REACTOR_DOC_REGISTRY_W002`| Registry-declared guide page has no inbound `<!-- ref:Member -->` marker (doc-coverage gate, spec [041 §5.3](../specs/041-docs-comprehensive-uplift.md)) |
-| `REACTOR_DOC_REFGEN_W002`  | *(warning — does **not** fail `--ci`)* The `Reactor.xml` the reference phase selected is older than the newest `.cs` under `src/Reactor`, so `docs/guide/reference/**` is being generated from a build that predates the source it documents — an edited `<summary>` will not appear and a deleted one comes back. Run `dotnet build src/Reactor` and compile again. Warning, not error, because it reports that the *input* may be stale rather than a defect in the tree. It does not fire in CI: the docs job builds `src/Reactor` (via Phase 2's doc-app builds) *after* checkout has written the sources, so the XML always postdates them. See [§4](#which-reactorxml-the-reference-phase-reads) |
+| `REACTOR_DOC_REFGEN_003`   | The reference phase found an assembly's XML doc file (`Microsoft.UI.Reactor.xml` or `Microsoft.UI.Reactor.Advanced.xml`) but no DLL next to it (or an input file it was given does not exist). Nothing under `docs/guide/reference/` is written or deleted. Run the `dotnet build` the message names (`src/Reactor` or `src/Reactor.Advanced`) and compile again. Fails `--ci` and `--reference-only` |
+| `REACTOR_DOC_REFGEN_W002`  | *(warning — does **not** fail `--ci`)* An XML doc file the reference phase selected is older than the newest `.cs` in its project (`src/Reactor` or `src/Reactor.Advanced`), so `docs/guide/reference/**` is being generated from a build that predates the source it documents — an edited `<summary>` will not appear and a deleted one comes back. Run the `dotnet build` the message names and compile again. Warning, not error, because it reports that the *input* may be stale rather than a defect in the tree. It does not fire in CI: the docs job builds both projects (via Phase 2's doc-app builds) *after* checkout has written the sources, so the XML always postdates them. See [§4](#which-microsoftuireactorxml-the-reference-phase-reads) |
 
 ## 7. Quarterly tier audit (spec 041 §5.4)
 
@@ -797,7 +867,7 @@ on `src/Reactor`'s `obj/bin`.
 ## 10. Compiled-output freshness gate
 
 `docs/guide/**` is generated. The `docs-build` job recompiles all of it on every
-PR — 72 topic pages, `README.md`, and ~117 pages under `reference/` — and then
+PR — 72 topic pages, `README.md`, and the API reference under `reference/` — and then
 asserts that recompiling changed nothing:
 
 ```pwsh
@@ -845,18 +915,18 @@ is the defect it was added to fix, one level up.
 
 There is a third way a compile can exit 0 without regenerating, and it is
 **not** checked here on purpose. Phase 5.7 prints its header and then bails when
-`Reactor.xml` or `reference-map.yaml` is missing (see *Which `Reactor.xml` the
-reference phase reads*), leaving ~117 reference pages unwritten. The pipeline's
+`Microsoft.UI.Reactor.xml` or `reference-map.yaml` is missing (see *Which `Microsoft.UI.Reactor.xml` the
+reference phase reads*), leaving the reference pages unwritten. The pipeline's
 `compile --ci` now **returns non-zero** for that, so the compile step catches it
 and the gate never sees it. The first version of this gate grepped stdout for
-`Reactor.xml not found` instead, which was both the wrong owner and the wrong
+`Microsoft.UI.Reactor.xml not found` instead, which was both the wrong owner and the wrong
 direction of failure: reword the message in `CompileCommand.cs` and the grep
 silently stops matching — it fails *open*. `ReferenceStalenessWiringTests` pins
 the exit code, in both the `--ci` and the local direction, so the contract is a
 test rather than a string.
 
 Note the asymmetry that makes this correct rather than merely stricter: locally,
-a missing `Reactor.xml` is the first-compile case and still just skips with a
+a missing `Microsoft.UI.Reactor.xml` is the first-compile case and still just skips with a
 message, because an author who hasn't built yet should still get their guide
 pages. Under `--ci` there is no such case — CI always builds.
 

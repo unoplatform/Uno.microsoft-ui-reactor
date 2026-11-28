@@ -1,4 +1,11 @@
 
+# Reconciliation
+
+This page absorbs the legacy `docs/reference/reconciliation.md`. The
+goal is one place to learn how Reactor diffs trees — the same
+information, in the structure the rest of the guide uses, plus the
+source pointers that let you verify it.
+
 The reconciler is the only thing in Microsoft.UI.Reactor (Reactor) that writes to WinUI.
 Every visual change you see on screen — a property update on a Button,
 a new row in a list, a TabView item that just animated in — passes
@@ -15,13 +22,6 @@ in close to the theoretical minimum number of moves. Read this page
 before any of the others in the Under-the-hood track that mention
 "the reconciler" — and read it once, end-to-end, before reaching
 for a debugger when something rerenders incorrectly.
-
-# Reconciliation
-
-This page absorbs the legacy `docs/reference/reconciliation.md`. The
-goal is one place to learn how Reactor diffs trees — the same
-information, in the structure the rest of the guide uses, plus the
-source pointers that let you verify it.
 
 ## Tri-state dispatch
 
@@ -56,7 +56,7 @@ public UIElement? Reconcile(
 {
     // A top-level pass is an outermost Reactor frame for render-error propagation
     // (issue #1291); see EnterFrame. Nested passes and mounts just count.
-    using var entryFrame = EnterFrame();
+    using var entryFrame = EnterFrame(Diagnostics.ReactorPerfTrace.ReconcileEntries.Reconcile, newElement);
     // Declared before the reconcile work so it is disposed after it: validation changes raised by mount,
     // update, or unmount are announced only once the whole pass has finished.
     using var validationScope = Controls.Validation.ValidationRenderScope.BeginReconcile();
@@ -184,6 +184,7 @@ reads these.
 ```csharp
 public UIElement? Mount(Element element, Action requestRerender)
 {
+    var modifierTarget = element;
     // Unwrap legacy ModifiedElement (backward compat)
     ElementModifiers? modifiers = element.Modifiers;
     if (element is ModifiedElement mod)

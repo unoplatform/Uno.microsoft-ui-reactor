@@ -2,11 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <!-- C# 15: exhaustive switches over Reactor's `closed` hierarchies (AsyncValueTests). -->
+    <LangVersion>15</LangVersion>
     <Platforms>x64;ARM64</Platforms>
     <AssemblyName>Reactor.Tests</AssemblyName>
     <RootNamespace>Microsoft.UI.Reactor.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- AOT-honest (issue #70): the IL2*/IL3* analyzer is ENABLED (IsAotCompatible) even
          though this headless unit-test host is never trimmed/AOT-published in the normal
          `dotnet test` path. Several suites (CoreControlFamilyBoundaryTests IL scan,
@@ -44,6 +48,8 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <!-- Lifts the harness's transitive Pkcs to a patched version (see Directory.Packages.props). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <!-- Supplies the MTP hangdump option (replaces the VSTest "blame hang timeout" flag). -->
@@ -55,6 +61,17 @@
 
   <ItemGroup>
     <Compile Include="..\_shared\BuiltInHandlerBootstrap.cs" Link="BuiltInHandlerBootstrap.cs" />
+    <Compile Include="..\_shared\EtwPrivateCapture.cs" Link="EtwPrivateCapture.cs" />
+    <Compile Include="..\..\samples\apps\wct-controls\CameraPreviewLifetime.cs" Link="Samples\CameraPreviewLifetime.cs" />
+    <!-- Spec 066 §12.1: the transforms matrix generator, composition model and ledger are pure
+         managed code shared with the selftest host, so they are tested here headless. -->
+    <Compile Include="..\Reactor.AppTests.Host\SelfTest\TransformsMatrix\*.cs" Link="TransformsMatrix\%(Filename)%(Extension)" />
+    <!-- Spec 067 §10.1: the brush / FontFamily fields the selftest covers, checked against the
+         headless contract table so the two tiers can't drift apart. -->
+    <Compile Include="..\Reactor.AppTests.Host\SelfTest\ModifierFieldContractSelfTestFields.cs" Link="ModifierFieldContractSelfTestFields.cs" />
+    <!-- Spec 067 §10.2: the frozen matrix the selftest runs, linked so
+         ModifierMatrixSchemaAgreementTests can check schema and matrix agree headlessly. -->
+    <Compile Include="..\Reactor.AppTests.Host\SelfTest\ModifierMatrix\ModifierMatrixExpectations.cs" Link="ModifierMatrixExpectations.cs" />
   </ItemGroup>
 
   <!--
@@ -104,6 +121,7 @@
     <ProjectReference Include="..\..\tools\Reactor.MurCheckGuardrail\Reactor.MurCheckGuardrail.csproj" />
     <ProjectReference Include="..\..\tools\Reactor.ApiIndex\Reactor.ApiIndex.csproj" />
     <ProjectReference Include="..\..\tools\Reactor.SearchIndex\Reactor.SearchIndex.csproj" />
+    <ProjectReference Include="..\..\tools\Reactor.ModifierGen\Reactor.ModifierGen.csproj" />
   </ItemGroup>
 
 </Project>

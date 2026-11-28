@@ -39,7 +39,9 @@ internal static class Win2DCanvasFixtures
                 await Harness.WaitFor(() => Volatile.Read(ref drawCount) >= 1, maxPasses: 40, perPassMs: 25));
 
             var before = Volatile.Read(ref drawCount);
-            var weak = CaptureControlWeakReference<CanvasControl>(H);
+            var weak = TryCaptureControlWeakReference<CanvasControl>(H, "Win2D_Canvas_ControlFound");
+            if (weak is null)
+                return;
             H.ClickButton("Redraw Win2D");
             await Harness.Render();
 
@@ -319,18 +321,110 @@ internal static class Win2DCanvasFixtures
         }
     }
 
+    /// <summary>
+    /// Win2D's unmount calls <c>RemoveFromVisualTree</c>, which detaches the canvas from its
+    /// panel before the reconciler replaces it by index. Replacing a canvas with an element of
+    /// another type used to remove the following sibling instead (or throw when the canvas was
+    /// last), which is what put a render-error panel into the win2d-canvas docs screenshot.
+    /// Covers a direct child (middle and last), a flyout target and a component root.
+    /// </summary>
+    internal class CanvasReplacedByOtherTypeKeepsSiblings(Harness h) : SelfTestFixtureBase(h)
+    {
+        private Exception? _renderError;
+        private global::Microsoft.UI.Reactor.Hosting.ReactorHost? _host;
+
+        public override async Task RunAsync()
+        {
+            _host = H.CreateHost();
+            _host.RenderErrorHandler = e => { _renderError ??= e.Exception; return null; };
+            await RunCase("Middle", trailingSibling: true, show => show
+                ? Win2DCanvas((session, _) => session.Clear(Colors.White)).Width(120).Height(60)
+                : TextBlock("Win2D replacement"));
+            await RunCase("Last", trailingSibling: false, show => show
+                ? Win2DVirtualCanvas((session, _) => session.Clear(Colors.White), new Size(400, 400)).Width(120).Height(60)
+                : TextBlock("Win2D replacement"));
+            await RunCase("FlyoutTarget", trailingSibling: true, show => Flyout(
+                show
+                    ? Win2DCanvas((session, _) => session.Clear(Colors.White)).Width(120).Height(60)
+                    : TextBlock("Win2D replacement"),
+                TextBlock("Win2D flyout content")));
+            await RunCase("ComponentRoot", trailingSibling: true,
+                show => Component<SwapRoot, SwapRootProps>(new(show)));
+
+            _host.Mount(_ => TextBlock("Win2D replace unmounted"));
+            await Harness.Render();
+        }
+
+        private async Task RunCase(string name, bool trailingSibling, Func<bool, Element> slot)
+        {
+            _renderError = null;
+            _host!.Mount(ctx =>
+            {
+                var (showCanvas, setShowCanvas) = ctx.UseState(true);
+                return VStack(8,
+                    Button("Swap Win2D", () => setShowCanvas(false)),
+                    slot(showCanvas),
+                    trailingSibling ? TextBlock("Win2D trailing sibling") : null);
+            });
+            await Harness.Render();
+            H.Check($"Win2D_Replace_{name}_CanvasMounted",
+                H.FindControl<CanvasControl>(_ => true) is not null
+                || H.FindControl<CanvasVirtualControl>(_ => true) is not null);
+
+            H.ClickButton("Swap Win2D");
+            await Harness.Render();
+
+            var panel = H.FindControl<Panel>(p => p.Children.OfType<Button>().Any(b => b.Content as string == "Swap Win2D"));
+            var texts = panel is null ? [] : FindTexts(panel);
+            string[] expected = trailingSibling ? ["Win2D replacement", "Win2D trailing sibling"] : ["Win2D replacement"];
+            H.Check($"Win2D_Replace_{name}_NoRenderError", _renderError is null);
+            H.Check($"Win2D_Replace_{name}_ChildrenInOrder",
+                panel is not null && panel.Children.Count == expected.Length + 1 && texts.SequenceEqual(expected));
+            H.Check($"Win2D_Replace_{name}_CanvasGone",
+                H.FindControl<CanvasControl>(_ => true) is null && H.FindControl<CanvasVirtualControl>(_ => true) is null);
+        }
+
+        // The replacement may sit inside a wrapper (a component's host), so read each panel
+        // child's first TextBlock rather than only direct TextBlock children.
+        private static string?[] FindTexts(Panel panel) =>
+            panel.Children.Skip(1)
+                .Select(c => c is TextBlock tb ? tb.Text : FirstText(c))
+                .ToArray();
+
+        private static string? FirstText(Microsoft.UI.Xaml.DependencyObject root)
+        {
+            var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+                if (child is TextBlock tb) return tb.Text;
+                if (FirstText(child) is { } text) return text;
+            }
+            return null;
+        }
+    }
+
+    private sealed record SwapRootProps(bool ShowCanvas);
+
+    private sealed class SwapRoot : Component<SwapRootProps>
+    {
+        public override Element Render() => Props.ShowCanvas
+            ? Win2DCanvas((session, _) => session.Clear(Colors.White)).Width(120).Height(60)
+            : TextBlock("Win2D replacement");
+    }
     private sealed class AnimatedProbe
     {
         public int Ticks;
     }
 
-    private static WeakReference CaptureControlWeakReference<TControl>(Harness h)
+    // Reports the precondition as a check (emitted on every run, so its absence is never
+    // mistaken for success) instead of throwing, which truncated the TAP stream (issue #998).
+    private static WeakReference? TryCaptureControlWeakReference<TControl>(Harness h, string checkName)
         where TControl : Microsoft.UI.Xaml.DependencyObject
     {
         var control = h.FindControl<TControl>(_ => true);
-        if (control is null)
-            throw new InvalidOperationException($"Expected {typeof(TControl).Name} in visual tree.");
-        return new WeakReference(control);
+        h.Check(checkName, control is not null);
+        return control is null ? null : new WeakReference(control);
     }
 
     private static async Task<bool> WaitForCollectedOrDetached(WeakReference weak, Func<bool> isDetached)
