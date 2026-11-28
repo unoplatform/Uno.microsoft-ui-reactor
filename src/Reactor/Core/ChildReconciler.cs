@@ -157,7 +157,7 @@ internal static class ChildReconciler
                 if (ctrl is not null)
                 {
                     children.Insert(live, ctrl);
-                    ApplyAmbientEnterIfActive(ctrl, newEl, ambientKind);
+                    ApplyAmbientEnterIfActive(ctrl, newEl, ambientKind, reconciler);
                     live++;
                 }
                 ni++;
@@ -287,7 +287,7 @@ internal static class ChildReconciler
             if (ctrl is not null)
             {
                 children.Insert(children.Count, ctrl);
-                ApplyAmbientEnterIfActive(ctrl, newChildren[i], ambientKind);
+                ApplyAmbientEnterIfActive(ctrl, newChildren[i], ambientKind, reconciler);
             }
         }
     }
@@ -364,15 +364,17 @@ internal static class ChildReconciler
                 // circuits Update, so without this the event trampoline keeps
                 // dispatching through the previous render's closure — stale state
                 // (e.g., Counter's `() => setCount(count + 1)` would keep capturing
-                // the initial count). For callback-free elements we still avoid
+                // the initial count). Callback-free non-flyout elements still avoid
                 // the children.Get COM call.
                 // #721 — the gesture/drag slots are excluded from the skip predicate,
                 // so refresh their cached dispatch closures here too (same stale-closure
                 // hazard as Tag). Fetch the control once for either need.
                 if ((newEl.HasCallbacks
-                        || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
-                        || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers)
-                        || Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
+                        || Reconciler.IsFlyoutDecorator(newEl)
+                        || GestureDispatch.HasGestureOrDragSlots(newEl.Modifiers)
+                        || GestureDispatch.HasGestureOrDragSlots(oldEl.Modifiers)
+                        || Reconciler.CallSiteChangedOnSkip(oldEl, newEl)
+                        || Reconciler.KeyframesRebuiltOnSkip(oldEl, newEl))
                     && (existingControl ??= children.Get(i)) is FrameworkElement fe)
                 {
                     reconciler.RefreshSkippedChildState(fe, oldEl, newEl);
@@ -384,12 +386,12 @@ internal static class ChildReconciler
         if (reconciler.CanUpdate(oldEl, newEl))
         {
             existingControl ??= children.Get(i);
-            var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate);
+            var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate, childIndex: i);
             if (replacement is not null)
             {
                 // Child type changed at runtime — replace in place
                 if (!unmountedByUpdate) reconciler.UnmountChild(existingControl);
-                children.Replace(i, replacement);
+                children.ReplaceUnmounted(i, existingControl, replacement);
             }
             return false;
         }
@@ -566,7 +568,7 @@ internal static class ChildReconciler
                 if (_physical >= count) continue;
                 if (control is FrameworkElement fe)
                 {
-                    var controlKey = Reconciler.GetElementTag(fe)?.Key;
+                    var controlKey = Reconciler.GetMountedElement(fe)?.Key;
                     // An unkeyed Memo must not claim a keyed sibling, but its own
                     // realized output can carry a key that is not a sibling key.
                     if (oldChildren[logical].Key is { } key
@@ -656,9 +658,11 @@ internal static class ChildReconciler
                 // #721 — likewise refresh the cached gesture/drag dispatch closures
                 // (excluded from the skip predicate). Fetch the control once.
                 if ((newEl.HasCallbacks
-                        || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
-                        || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers)
-                        || Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
+                        || Reconciler.IsFlyoutDecorator(newEl)
+                        || GestureDispatch.HasGestureOrDragSlots(newEl.Modifiers)
+                        || GestureDispatch.HasGestureOrDragSlots(oldEl.Modifiers)
+                        || Reconciler.CallSiteChangedOnSkip(oldEl, newEl)
+                        || Reconciler.KeyframesRebuiltOnSkip(oldEl, newEl))
                     && map.At(prefixLen) < childCount
                     && (existingControl ??= map.ControlAt(prefixLen)) is FrameworkElement fe)
                 {
@@ -673,11 +677,11 @@ internal static class ChildReconciler
             if (panelIdx < childCount)
             {
                 existingControl ??= map.ControlAt(prefixLen);
-                var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate);
+                var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate, childIndex: prefixLen);
                 if (replacement is not null)
                 {
                     if (!unmountedByUpdate) reconciler.UnmountChild(existingControl);
-                    children.Replace(panelIdx, replacement);
+                    children.ReplaceUnmounted(panelIdx, existingControl, replacement);
                 }
             }
             prefixLen++;
@@ -709,9 +713,11 @@ internal static class ChildReconciler
                 reconciler.DebugElementsSkipped++;
                 // #721 — refresh Tag + cached gesture/drag dispatch closures on skip.
                 if ((newEl.HasCallbacks
-                        || Reconciler.HasGestureOrDragSlots(newEl.Modifiers)
-                        || Reconciler.HasGestureOrDragSlots(oldEl.Modifiers)
-                        || Reconciler.CallSiteChangedOnSkip(oldEl, newEl))
+                        || Reconciler.IsFlyoutDecorator(newEl)
+                        || GestureDispatch.HasGestureOrDragSlots(newEl.Modifiers)
+                        || GestureDispatch.HasGestureOrDragSlots(oldEl.Modifiers)
+                        || Reconciler.CallSiteChangedOnSkip(oldEl, newEl)
+                        || Reconciler.KeyframesRebuiltOnSkip(oldEl, newEl))
                     && map.At(oldIdx) >= 0
                     && map.At(oldIdx) < childCount
                     && (existingControl ??= map.ControlAt(oldIdx)) is FrameworkElement fe)
@@ -726,11 +732,11 @@ internal static class ChildReconciler
             if (panelIdx >= 0 && panelIdx < childCount)
             {
                 existingControl ??= map.ControlAt(oldIdx);
-                var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate);
+                var replacement = reconciler.UpdateChildTracked(oldEl, newEl, existingControl, requestRerender, out var unmountedByUpdate, childIndex: newIdx);
                 if (replacement is not null)
                 {
                     if (!unmountedByUpdate) reconciler.UnmountChild(existingControl);
-                    children.Replace(panelIdx, replacement);
+                    children.ReplaceUnmounted(panelIdx, existingControl, replacement);
                 }
             }
             suffixLen++;
@@ -761,7 +767,7 @@ internal static class ChildReconciler
                 if (ctrl is not null)
                 {
                     children.Insert(panelIndex++, ctrl);
-                    ApplyAmbientEnterIfActive(ctrl, newChildren[newStart + i], ambientKind);
+                    ApplyAmbientEnterIfActive(ctrl, newChildren[newStart + i], ambientKind, reconciler);
                 }
             }
             return;
@@ -823,19 +829,35 @@ internal static class ChildReconciler
             // must default to false for the unmatched-removal pass below.
             global::System.Array.Clear(matched, 0, oldMidLen);
 
-            // Build old key → index map
+            // Unkeyed children match by absolute position; they need no synthetic string
+            // unless an explicit key can collide with the legacy fallback namespace.
+            bool legacyFallback = false;
             for (int i = 0; i < oldMidLen; i++)
             {
-                var key = GetKey(oldChildren[oldStart + i], oldStart + i);
+                var key = oldChildren[oldStart + i].Key;
+                if (key is null) continue;
                 oldKeyMap[key] = i;
+                legacyFallback |= key.StartsWith("__pos_", StringComparison.Ordinal);
+            }
+            if (legacyFallback)
+            {
+                // Preserve last-wins shadowing even though CanUpdate later rejects
+                // keyed/unkeyed and runtime-type mismatches.
+                oldKeyMap.Clear();
+                for (int i = 0; i < oldMidLen; i++)
+                    oldKeyMap[GetKey(oldChildren[oldStart + i], oldStart + i)] = i;
             }
 
             // Map new keys to old indices
             for (int i = 0; i < newMidLen; i++)
             {
-                var key = GetKey(newChildren[newStart + i], newStart + i);
-                if (oldKeyMap.TryGetValue(key, out int oldIdx) &&
-                    reconciler.CanUpdate(oldChildren[oldStart + oldIdx], newChildren[newStart + i]))
+                var newChild = newChildren[newStart + i];
+                var key = legacyFallback ? GetKey(newChild, newStart + i) : newChild.Key;
+                int oldIdx = newStart + i - oldStart;
+                bool found = key is not null
+                    ? oldKeyMap.TryGetValue(key, out oldIdx)
+                    : (uint)oldIdx < (uint)oldMidLen;
+                if (found && reconciler.CanUpdate(oldChildren[oldStart + oldIdx], newChild))
                 {
                     newToOld[i] = oldIdx;
                     matched[oldIdx] = true;
@@ -1079,7 +1101,7 @@ internal static class ChildReconciler
             var ctrl = _reconciler.Mount(_newChildren[_newStart + newIdx], _requestRerender);
             if (ctrl is null) return false;
             _children.Insert(panelIdx, ctrl);
-            ApplyAmbientEnterIfActive(ctrl, _newChildren[_newStart + newIdx], _ambientKind);
+            ApplyAmbientEnterIfActive(ctrl, _newChildren[_newStart + newIdx], _ambientKind, _reconciler);
             return true;
         }
 
@@ -1111,11 +1133,12 @@ internal static class ChildReconciler
                 _newChildren[_newStart + newIdx],
                 existing,
                 _requestRerender,
-                out var unmountedByUpdate);
+                out var unmountedByUpdate,
+                childIndex: _newStart + newIdx);
             if (replacement is not null)
             {
                 if (!unmountedByUpdate) _reconciler.UnmountChild(existing);
-                _children.Replace(panelIdx, replacement);
+                _children.ReplaceUnmounted(panelIdx, existing, replacement);
             }
         }
     }
@@ -1329,11 +1352,11 @@ internal static class ChildReconciler
     /// continue to win when set; this is purely a default for the
     /// transactional case.
     /// </summary>
-    private static void ApplyAmbientEnterIfActive(UIElement ctrl, Element element, AnimationKind? ambientKind)
+    private static void ApplyAmbientEnterIfActive(UIElement ctrl, Element element, AnimationKind? ambientKind, Reconciler reconciler)
     {
         if (ambientKind is not { } kind) return;
         if (element.ElementTransition is not null) return;
-        Reconciler.ApplyAmbientEnterAnimation(ctrl, kind);
+        Reconciler.ApplyAmbientEnterAnimation(ctrl, kind, reconciler);
     }
 
     /// <summary>
@@ -1348,12 +1371,11 @@ internal static class ChildReconciler
         if (curve is null) return;
         try
         {
-            var visual = global::Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(ctrl);
-            var compositor = visual.Compositor;
-            var anim = Animation.AnimationHelper.CreateVector3ImplicitAnimation(compositor, "Offset", curve);
-            var coll = compositor.CreateImplicitAnimationCollection();
-            coll["Offset"] = anim;
-            visual.ImplicitAnimations = coll;
+            var visual = Animation.AnimationHelper.GetElementVisual(ctrl);
+            var anim = Animation.AnimationHelper.CreateVector3ImplicitAnimation(visual.Compositor, "Offset", curve);
+            // A declared layout, .Animate() or transition Offset key wins over the ambient move,
+            // and the element's other keys stay (spec 066 §6).
+            Animation.ImplicitAnimationSlots.Claim(ctrl, "Offset", Animation.ImplicitFeature.Move, 0, anim);
         }
         catch
         {

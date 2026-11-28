@@ -1,19 +1,21 @@
 name: Publish docs
 
-# The published site is versioned with mike (https://github.com/jimporter/mike).
-# Every version is rendered once and kept in the `gh-pages` branch; the Pages
-# artifact is that whole branch, so versions stay byte-identical after they are
-# published. Material's version selector reads the `versions.json` that mike
-# maintains at the site root.
+# The site is built with Blume (docs/_website). docs/_website/scripts/publish.mjs
+# renders each version once into its own folder on the `gh-pages` branch, and
+# the Pages artifact is that whole branch, so versions stay byte-identical after
+# they are published. Releases published before the move to Blume stay there as
+# the MkDocs sites they were. The `versions.json` at the site root keeps the
+# format mike wrote, so those older sites' version selector still reads it, and
+# Blume's version menu reads the same file.
 on:
   push:
     branches: [main]
     paths:
       - 'docs/guide/**'
-      - 'docs/_overrides/**'
+      - 'docs/_website/**'
       - 'docs/_site-root/**'
-      - 'mkdocs.yml'
-      - 'docs/requirements.txt'
+      # The site's /changelog pages are built from it.
+      - 'CHANGELOG.md'
       - '.github/workflows/docs.yml'
     # Path filters are not evaluated for tag pushes, so a release tag always
     # publishes regardless of which files the release commit touched. That is
@@ -27,6 +29,21 @@ on:
           Space-separated release tags to publish retroactively, e.g.
           "v0.1.0-preview.12 v0.1.0-preview.13". Leave empty to just republish
           the selected branch as the `main` version.
+        required: false
+        default: ''
+      handoff_versions:
+        description: >-
+          Set by a release-tag run, which publishes to gh-pages but hands the
+          Pages deployment to main (see the handoff job). Space-separated
+          versions already on gh-pages that this run must deploy and verify,
+          e.g. "0.1.0-preview.18". Can also be set by hand when re-serving a
+          release, so verify probes that version's directory too.
+        required: false
+        default: ''
+      handoff_from:
+        description: >-
+          Set by a release-tag run: the URL of the run that handed its
+          deployment here. Informational only.
         required: false
         default: ''
 
@@ -46,12 +63,17 @@ permissions: {}
 #
 # `cancel-in-progress` is deliberately absent: it defaults to false, and
 # `queue: max` with `cancel-in-progress: true` is a workflow validation error.
+#
+# The run a release tag hands its deployment to (see the handoff job) joins this
+# group too, behind the tag run that dispatched it. That is why the tag run
+# cannot wait for it: the tag run holds the group until its last job finishes,
+# so waiting would deadlock.
 concurrency:
   group: pages
   queue: max
 
 env:
-  MIKE_BRANCH: gh-pages
+  PAGES_BRANCH: gh-pages
   LATEST_ALIAS: latest
   MAIN_VERSION: main
   # Every publishing step appends the version it wrote to
@@ -63,14 +85,21 @@ env:
   # Held as a bare filename because workflow-level env cannot expand
   # $RUNNER_TEMP; every use joins the two.
   PUBLISHED_VERSIONS_FILE: published-versions.txt
+  # The branch every Pages deployment is made from. A release-tag run hands its
+  # deployment to a run dispatched here rather than deploying from the tag (see
+  # the handoff job). It must be a branch: a tag-ref deployment is exactly the
+  # one Pages drops.
+  PAGES_DEPLOY_REF: main
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     outputs:
       # The exact version list the verify job must find on the live site, and
-      # the subset this run actually wrote. See the artifact step for why each
-      # exists.
+      # the subset this run actually wrote (plus any a release-tag run handed
+      # off to it). See the artifact step for why each exists. The handoff job
+      # also passes `published` on, as the versions the run it dispatches must
+      # verify.
       versions: ${{ steps.artifact.outputs.versions }}
       published: ${{ steps.artifact.outputs.published }}
       # The attempt that produced the artifact. `github.run_attempt` read in
@@ -78,80 +107,108 @@ jobs:
       # reuses this artifact, so its attempt legitimately trails the re-run's.
       run_attempt: ${{ steps.artifact.outputs.run_attempt }}
     permissions:
-      contents: write # mike commits the rendered site to gh-pages
+      contents: write # scripts/publish.mjs commits the rendered site to gh-pages
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # mike rewrites the gh-pages branch, and the steps below decide which
-          # release is `latest` by sorting the tag list — both need real history.
+          # The publish steps commit on top of the gh-pages history, and decide
+          # which release is `latest` by sorting the tag list — both need real
+          # history.
           fetch-depth: 0
 
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: docs/requirements.txt
+          # docs/_website's engines floor; Blume does not run on older Node.
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: docs/_website/package-lock.json
 
-      - run: pip install -r docs/requirements.txt
+      - name: Install the site builder
+        working-directory: docs/_website
+        run: npm ci
 
-      - name: Configure the identity mike commits under
+      - name: Configure the identity gh-pages commits are made under
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch the existing version history
-        # Absent on the very first run; mike creates the branch in that case.
+      - name: Check out the existing version history
+        # A second worktree, so the publish steps write into gh-pages while this
+        # checkout stays on the ref being published. The branch is absent only
+        # on the very first run; anything else that stops git reading it fails
+        # here, because starting an empty branch over an existing one would
+        # only fail later, at the push.
         run: |
-          git fetch origin "$MIKE_BRANCH:$MIKE_BRANCH" \
-            || echo "No $MIKE_BRANCH branch yet — mike will create it."
+          pages="$RUNNER_TEMP/pages"
+          status=0
+          git ls-remote --exit-code --heads origin "$PAGES_BRANCH" >/dev/null || status=$?
+          case "$status" in
+            0)
+              git fetch origin "$PAGES_BRANCH:$PAGES_BRANCH"
+              git worktree add "$pages" "$PAGES_BRANCH"
+              ;;
+            2)
+              echo "No $PAGES_BRANCH branch yet — starting an empty one."
+              git worktree add --orphan -b "$PAGES_BRANCH" "$pages"
+              ;;
+            *)
+              echo "::error::Could not read $PAGES_BRANCH from origin (git ls-remote exited $status)."
+              exit "$status"
+              ;;
+          esac
+          echo "PAGES_DIR=$pages" >> "$GITHUB_ENV"
 
-      # mike exposes no --strict passthrough, so strictness stays an explicit
-      # gate. The build is deterministic, so passing here means the render mike
-      # performs next is equally clean. Mirrors the PR-side gate in ci.yml.
-      - name: Check the docs build strictly
-        run: python -m mkdocs build --strict --site-dir "$RUNNER_TEMP/strict-check"
+      # The publish steps build strictly as well. This adds what a build does
+      # not run, the publisher's own tests and Blume's content validation,
+      # before anything is written to gh-pages. Mirrors the PR-side gate in
+      # ci.yml.
+      - name: Check the docs strictly
+        working-directory: docs/_website
+        run: |
+          npm run smoke
+          node scripts/sync.mjs
+          npm run validate
 
       - name: Publish the main version
         if: github.ref_type == 'branch' && !inputs.backfill_tags
+        working-directory: docs/_website
         run: |
-          mike deploy --branch "$MIKE_BRANCH" --push --alias-type copy \
-            --title 'main (development)' "$MAIN_VERSION"
+          # Until a release holds `latest` there is nothing else for the site
+          # root to redirect to, so publish.mjs points it at main for that
+          # window; publishing any release moves it to `latest`.
+          node scripts/publish.mjs --pages "$PAGES_DIR" --version "$MAIN_VERSION" --push
           echo "$MAIN_VERSION" >> "$RUNNER_TEMP/$PUBLISHED_VERSIONS_FILE"
-
-          # Until a release version exists there is nothing for the site root to
-          # redirect to, which would leave it a 404. Point the root at main for
-          # that window only; publishing any release moves it back to `latest`.
-          if ! mike list --branch "$MIKE_BRANCH" "$LATEST_ALIAS" >/dev/null 2>&1; then
-            mike set-default --branch "$MIKE_BRANCH" --push "$MAIN_VERSION"
-          fi
 
       - name: Publish the release version
         # `!inputs.backfill_tags` matters because a workflow_dispatch can be
         # started from a tag ref: without it, a manual backfill launched from a
         # tag would run this step and the backfill step in the same run.
         if: github.ref_type == 'tag' && !inputs.backfill_tags
+        working-directory: docs/_website
         run: |
           version="${GITHUB_REF_NAME#v}"
-          newest="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+          # versionsort.suffix ranks v0.1.0 above v0.1.0-preview.N and -rc.N,
+          # matching publish.mjs. Plain v:refname puts the release last.
+          newest="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
 
           if [ "$GITHUB_REF_NAME" = "$newest" ]; then
-            mike deploy --branch "$MIKE_BRANCH" --push --alias-type copy \
-              --update-aliases "$version" "$LATEST_ALIAS"
-            mike set-default --branch "$MIKE_BRANCH" --push "$LATEST_ALIAS"
+            # Also builds /latest/ and points the site root at it.
+            node scripts/publish.mjs --pages "$PAGES_DIR" --version "$version" --latest --push
           else
             # Tagging an older line (a backport, or a re-cut of a superseded
             # tag) must publish that version without dragging `latest` backwards.
             echo "$GITHUB_REF_NAME is older than $newest — publishing without moving $LATEST_ALIAS."
-            mike deploy --branch "$MIKE_BRANCH" --push --alias-type copy "$version"
+            node scripts/publish.mjs --pages "$PAGES_DIR" --version "$version" --push
           fi
 
-          # Recorded only after mike has actually written the version, so the
+          # Recorded only after the version has actually been pushed, so the
           # list the verify job probes never claims something that was not
           # published.
           echo "$version" >> "$RUNNER_TEMP/$PUBLISHED_VERSIONS_FILE"
 
       - name: Backfill release versions
         if: inputs.backfill_tags
+        working-directory: docs/_website
         env:
           BACKFILL_TAGS: ${{ inputs.backfill_tags }}
         run: |
@@ -163,63 +220,60 @@ jobs:
               echo "::error::backfill_tags: '$tag' is not a tag in this repository. Use full release tags, including the leading v — for example v0.1.0-preview.14."
               exit 1
             fi
+            if ! git cat-file -e "$tag:docs/guide" 2>/dev/null; then
+              echo "::error::backfill_tags: '$tag' has no docs/guide folder to build."
+              exit 1
+            fi
           done
 
-          # Tags cut before versioning existed carry no version selector in their
-          # own mkdocs.yml, so the config and theme override from this ref are
-          # layered over each tag checkout. That only works while the tag's page
-          # set still satisfies this nav — the strict build below is what turns a
-          # tag that has drifted too far into a loud failure rather than a
-          # silently broken version.
-          overlay="$(mktemp -d)"
-          cp mkdocs.yml "$overlay/mkdocs.yml"
-          cp -r docs/_overrides "$overlay/_overrides"
-
-          newest="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
-
-          # Highest of the requested tags, ordered by git's version sort rather
-          # than the order the operator happened to type them in.
-          printf '%s\n' $BACKFILL_TAGS > "$RUNNER_TEMP/backfill-tags.txt"
-          highest_backfilled="$(git tag --list 'v*' --sort=-v:refname \
-            | grep -Fxf "$RUNNER_TEMP/backfill-tags.txt" | head -n 1)"
+          # Each tag's docs/guide is checked out beside this checkout and built
+          # with this ref's publish script and site config: tags cut before the
+          # move to Blume have no docs/_website. --lenient lets a tag's page set
+          # differ from this ref's nav.json (a missing page is a warning, an
+          # extra one lands in a "More" group) and builds without Blume's strict
+          # mode, since the tag's links were checked when it shipped.
+          newest="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
 
           for tag in $BACKFILL_TAGS; do
             echo "::group::Publishing $tag"
-            git checkout --force --detach "$tag"
-            cp "$overlay/mkdocs.yml" mkdocs.yml
-            rm -rf docs/_overrides
-            cp -r "$overlay/_overrides" docs/_overrides
-
-            python -m mkdocs build --strict --site-dir "$RUNNER_TEMP/strict-check"
+            checkout="$RUNNER_TEMP/tags/$tag"
+            git worktree add --detach "$checkout" "$tag"
 
             if [ "$tag" = "$newest" ]; then
-              mike deploy --branch "$MIKE_BRANCH" --push --alias-type copy \
-                --update-aliases "${tag#v}" "$LATEST_ALIAS"
+              node scripts/publish.mjs --pages "$PAGES_DIR" --version "${tag#v}" --latest \
+                --guide "$checkout/docs/guide" --ref "$tag" --lenient --push
             else
-              mike deploy --branch "$MIKE_BRANCH" --push --alias-type copy "${tag#v}"
+              node scripts/publish.mjs --pages "$PAGES_DIR" --version "${tag#v}" \
+                --guide "$checkout/docs/guide" --ref "$tag" --lenient --push
             fi
             echo "${tag#v}" >> "$RUNNER_TEMP/$PUBLISHED_VERSIONS_FILE"
+
+            git worktree remove --force "$checkout"
             echo "::endgroup::"
           done
 
-          git checkout --force "$GITHUB_SHA"
+          # No separate step for the site root: every publish rewrites it to
+          # `latest` once a release holds that alias, else main, else the newest
+          # published release, so it never 404s.
 
-          # `mike deploy` writes version directories but never the site root's
-          # index.html — only `set-default` does — so the root would 404 unless
-          # something is selected here. `latest` is the goal; main is the
-          # stand-in before any release is published; and failing those, the
-          # newest version this run published is better than no root at all.
-          # (It is transient either way: the next main push or release tag
-          # re-points the root.)
-          if mike list --branch "$MIKE_BRANCH" "$LATEST_ALIAS" >/dev/null 2>&1; then
-            mike set-default --branch "$MIKE_BRANCH" --push "$LATEST_ALIAS"
-          elif mike list --branch "$MIKE_BRANCH" "$MAIN_VERSION" >/dev/null 2>&1; then
-            echo "No $LATEST_ALIAS alias yet — pointing the site root at $MAIN_VERSION."
-            mike set-default --branch "$MIKE_BRANCH" --push "$MAIN_VERSION"
-          else
-            echo "Neither $LATEST_ALIAS nor $MAIN_VERSION is published — pointing the site root at ${highest_backfilled#v}."
-            mike set-default --branch "$MIKE_BRANCH" --push "${highest_backfilled#v}"
-          fi
+      - name: Adopt the versions a release-tag run handed off
+        # A release-tag run writes its version to gh-pages but does not deploy
+        # it (see the handoff job); it dispatches this workflow on
+        # PAGES_DEPLOY_REF and names what it wrote. Recording those versions
+        # here is what makes verify probe their directories on the live site.
+        # Without it this run would only prove `main`, and a broken release
+        # directory could pass on the strength of its versions.json entry. The
+        # artifact step fails the run if any of them is missing from gh-pages.
+        if: inputs.handoff_versions
+        env:
+          HANDOFF_VERSIONS: ${{ inputs.handoff_versions }}
+          HANDOFF_FROM: ${{ inputs.handoff_from }}
+        run: |
+          echo "Deploying versions handed off by ${HANDOFF_FROM:-a manual dispatch}: $HANDOFF_VERSIONS"
+          # `read -a` rather than an unquoted loop: it splits on whitespace
+          # without glob-expanding a stray `*` against the workspace.
+          read -r -a handed_off <<< "$HANDOFF_VERSIONS"
+          printf '%s\n' "${handed_off[@]}" >> "$RUNNER_TEMP/$PUBLISHED_VERSIONS_FILE"
 
       - name: Assemble the Pages artifact from every published version
         id: artifact
@@ -227,21 +281,21 @@ jobs:
         # without leaving git metadata in the directory that gets uploaded.
         run: |
           rm -rf site && mkdir site
-          git archive "$MIKE_BRANCH" | tar -x -C site
+          git archive "$PAGES_BRANCH" | tar -x -C site
 
           # Forwards legacy unversioned URLs to the same page under `latest`.
-          # Kept out of the mike branch deliberately: it is a property of how the
+          # Kept out of gh-pages deliberately: it is a property of how the
           # site is served, not of any one published version, so it is refreshed
           # from this ref on every deploy. It is tracked in the repo, so a
           # missing file means something is wrong rather than absent by choice.
           cp docs/_site-root/404.html site/404.html
 
-          # `mike deploy` writes version directories but never the root
-          # index.html; only `set-default` does. Publishing without one leaves
-          # the site root a 404, which is worth catching here rather than in a
-          # bug report.
+          # scripts/publish.mjs rewrites the root index.html on every publish,
+          # so a missing one means no publish step reached gh-pages. Without it
+          # the site root would 404, which is worth catching here rather than in
+          # a bug report.
           if [ ! -f site/index.html ]; then
-            echo "::error::The assembled site has no root index.html, so the site root would 404. A publish step must run mike set-default."
+            echo "::error::The assembled site has no root index.html, so the site root would 404. Every publish step runs scripts/publish.mjs, which writes it; check that one ran."
             exit 1
           fi
 
@@ -252,10 +306,9 @@ jobs:
           # can tell *this* deployment from any other one serving the same site.
           #
           # Comparing versions.json alone would be vacuous for a main push:
-          # `mike deploy main` republishes an existing version, so the version
-          # set is unchanged and the comparison passes whether or not this run's
-          # deployment ever landed. The run id is what makes the check mean
-          # something on every trigger.
+          # republishing main leaves the version set unchanged, so the
+          # comparison passes whether or not this run's deployment ever landed.
+          # The run id is what makes the check mean something on every trigger.
           #
           # Written here rather than committed to gh-pages for the same reason
           # 404.html is: it is a property of a deployment, not of a published
@@ -276,7 +329,8 @@ jobs:
           # Compact, because a job output is a single line.
           echo "versions=$(jq -c . site/versions.json)" >> "$GITHUB_OUTPUT"
 
-          # The versions this run actually wrote, for the verify job to probe.
+          # The versions this run actually wrote, plus any a release-tag run
+          # handed off to it, for the verify job to probe.
           # Every trigger path publishes at least one (main push, release tag,
           # or backfill), so an empty list means a publishing step stopped
           # recording and the gate would quietly fall back to probing only the
@@ -290,13 +344,14 @@ jobs:
           published="$(jq -R -s -c 'split("\n") | map(select(length > 0)) | unique' < "$published_file")"
 
           # The two lists are produced independently — one by the publishing
-          # steps, one by mike — so a divergence means the run does not actually
-          # know what it published. Fail here rather than letting the verify job
-          # quietly probe fewer directories than it should.
+          # steps, one by scripts/publish.mjs in versions.json — so a divergence
+          # means the run does not actually know what it published. Fail here
+          # rather than letting the verify job quietly probe fewer directories
+          # than it should.
           missing="$(jq -c --argjson published "$published" \
             '(map(.version)) as $known | $published - $known' site/versions.json)"
           if [ "$missing" != "[]" ]; then
-            echo "::error::These versions were recorded as published but are absent from site/versions.json: $missing. The publishing steps and mike disagree, so the verify job cannot be trusted to probe the right directories."
+            echo "::error::These versions were recorded as published (or handed off by a release-tag run) but are absent from site/versions.json: $missing. The recorded list and versions.json disagree, so the verify job cannot be trusted to probe the right directories."
             exit 1
           fi
 
@@ -312,22 +367,25 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+          # Blume writes each version's agent catalog under `.well-known/`,
+          # which the action leaves out by default.
+          include-hidden-files: true
 
   deploy:
     needs: publish
-    # A release commit produces two runs that hand actions/deploy-pages the
-    # same `pages_build_version` — it is github.sha, with no input to override
-    # it — so both deployments land under one identity and Pages may strand one
-    # of them (issue #1268).
+    # Never from a tag. GitHub Pages accepts a deployment made from a tag ref
+    # for a commit it is already serving, reports it successful (the
+    # Deployments API even marks it active), and keeps serving the previous
+    # artifact (issue #1268, actions/deploy-pages#383). A release tag always
+    # points at the merge commit the `main` push just deployed, so its own
+    # deployment was dropped on every release from 0.1.0-preview.16 to .18.
+    # One came 14 minutes after the `main` run, so it is not a race. A
+    # same-commit deployment from `main` went live within seconds each time.
     #
-    # That duplicate is tolerated rather than avoided. Standing one run down
-    # requires predicting that the other will deploy, and every form of that
-    # prediction fails silently in the direction that matters: a pending tag
-    # run can be evicted, a stale local tag can name a release that no longer
-    # exists, an unreachable `origin` makes the check answer "no tag here", and
-    # the two runs are not guaranteed to enter the concurrency group in event
-    # order. Each of those skips the deployment *and* the verification below,
-    # which is strictly worse than a duplicate that `verify` can catch.
+    # So a tag run publishes to gh-pages and the handoff job below hands the
+    # deployment to `main`. The two conditions are exact complements: every
+    # run either deploys (and is verified) or hands off.
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -360,10 +418,10 @@ jobs:
           node-version: '22.13.0'
 
       # `deploy` reporting success is not evidence that the site serves what
-      # this run built: a deployment can collide with another under the same
-      # pages_build_version and be stranded while every job stays green
-      # (issue #1268). This is the only step in the pipeline that looks at the
-      # live site, so it is the only one that can catch that.
+      # this run built: Pages has accepted and reported deployments it never
+      # served (issue #1268). This is the only step in the pipeline that looks
+      # at the live site, so it is the only one that can catch that, whatever
+      # the cause.
       - name: Assert the live site is serving this run's artifact
         env:
           DOCS_BASE_URL: ${{ needs.deploy.outputs.page_url }}
@@ -374,3 +432,81 @@ jobs:
           DOCS_VERIFY_TIMEOUT_SECONDS: '600'
           DOCS_VERIFY_INTERVAL_SECONDS: '15'
         run: node .github/scripts/verify-docs-deployment.mjs
+
+  handoff:
+    name: Hand the deployment to main
+    needs: publish
+    # The complement of `deploy`'s condition; see there for why a tag run must
+    # not deploy. By the time this runs, `publish` has already written this
+    # tag's version to gh-pages, so the dispatched run (which assembles its
+    # artifact from the whole branch) serves it, and verifies the versions
+    # named below on the live site.
+    #
+    # Nothing here predicts whether some other run will deploy. The handoff is
+    # unconditional, the run it creates queues behind this one in the `pages`
+    # group and so always finds this version on gh-pages, and a refused
+    # dispatch fails this job. `queue: max` still cancels a run that arrives at
+    # a full queue (100 pending), so the step also checks that the dispatched
+    # run was admitted rather than trusting the API's acceptance. This run does
+    # not wait for it to *finish*: see the concurrency block for why it cannot.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # dispatches this workflow on PAGES_DEPLOY_REF
+    steps:
+      - name: Dispatch Publish docs on main to deploy and verify this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHED: ${{ needs.publish.outputs.published }}
+        run: |
+          # Assigned on its own so `bash -e` sees a jq failure; inside another
+          # command's arguments it would be swallowed.
+          versions="$(jq -er 'if type == "array" and length > 0 and all(type == "string")
+            then join(" ") else error("publish recorded no versions: \(.)") end' <<< "${PUBLISHED:-null}")"
+
+          # The file this run started from, so a rename cannot leave the
+          # dispatch pointing at a workflow that no longer exists. Cut at
+          # `@refs/` rather than the last `@`, which a tag name may contain.
+          workflow="${GITHUB_WORKFLOW_REF%%@refs/*}"
+          workflow="${workflow##*/}"
+          from="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+
+          request="$(jq -n --arg ref "$PAGES_DEPLOY_REF" --arg versions "$versions" --arg from "$from" \
+            '{ref: $ref, inputs: {handoff_versions: $versions, handoff_from: $from}, return_run_details: true}')"
+          echo "Dispatching $workflow on $PAGES_DEPLOY_REF: $request"
+
+          # A refused dispatch (permissions, an input the target ref's workflow
+          # does not declare) exits non-zero and fails this job, so the release
+          # cannot quietly go unserved.
+          response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/dispatches" --input - <<< "$request")"
+
+          run_url="$(jq -r '.html_url // empty' <<< "$response")"
+          run_id="$(jq -r '.workflow_run_id // empty' <<< "$response")"
+          if [ -z "$run_url" ] || [ -z "$run_id" ]; then
+            # The dispatch was accepted; only the link and the admission check
+            # below are missing.
+            run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/$workflow?query=event%3Aworkflow_dispatch"
+            echo "::warning::The dispatch was accepted but GitHub returned no run details, so its admission to the pages queue is unchecked. Find the run in $run_url."
+          else
+            # This run holds the `pages` group, so a healthy dispatched run
+            # waits behind it and cannot finish yet. Finishing anyway means it
+            # never got in: cancelled at a full queue, or a startup failure.
+            for _ in $(seq 1 9); do
+              sleep 5
+              state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '"\(.status) \(.conclusion // "")"')" \
+                || state="unreadable "
+              if [ "${state%% *}" = completed ]; then
+                echo "::error::The dispatched run $run_url ended before it could deploy (${state#* }), so $versions is on $PAGES_BRANCH but not being served. Dispatch Publish docs on $PAGES_DEPLOY_REF with handoff_versions set to '$versions'."
+                exit 1
+              fi
+            done
+            echo "Dispatched run $run_id is waiting its turn ($state)."
+          fi
+
+          echo "::notice title=Deployment handed to $PAGES_DEPLOY_REF::$run_url deploys and verifies $versions. Its verify job, not this run, says whether the release is live."
+          {
+            echo "### Deployment handed to \`$PAGES_DEPLOY_REF\`"
+            echo
+            echo "This tag run published \`$versions\` to \`$PAGES_BRANCH\` but does not deploy from a tag ref (issue #1268)."
+            echo "[The run it dispatched]($run_url) deploys from \`$PAGES_DEPLOY_REF\` and verifies the live site: check its \`verify\` job."
+          } >> "$GITHUB_STEP_SUMMARY"

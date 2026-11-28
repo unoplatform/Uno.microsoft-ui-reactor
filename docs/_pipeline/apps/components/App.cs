@@ -48,6 +48,17 @@ class Alert : Component<AlertProps>
 }
 // </snippet:props-component>
 
+// Screenshot host for props-component: a Component<TProps> previewed on its own has no Props.
+class AlertDemo : Component
+{
+    public override Element Render() =>
+        VStack(12,
+            Component<Alert, AlertProps>(new("Success", "It works!")),
+            Component<Alert, AlertProps>(new("Careful", "Check your input", "warning")),
+            Component<Alert, AlertProps>(new("Oops", "Something broke", "error"))
+        ).Padding(16);
+}
+
 // <snippet:should-update>
 record ExpensiveProps(string Label, int Value);
 
@@ -79,7 +90,7 @@ class FunctionComponentDemo : Component
             {
                 var (on, setOn) = ctx.UseState(false);
                 return HStack(8,
-                    ToggleSwitch(on, setOn),
+                    ToggleSwitch(on, setOn).AutomationName("Active"),
                     TextBlock(on ? "Active" : "Inactive")
                 );
             }),

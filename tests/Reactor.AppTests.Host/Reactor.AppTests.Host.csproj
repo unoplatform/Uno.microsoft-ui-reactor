@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <Compile Include="..\_shared\BuiltInHandlerBootstrap.cs" Link="BuiltInHandlerBootstrap.cs" />
+    <Compile Include="..\_shared\EtwPrivateCapture.cs" Link="EtwPrivateCapture.cs" />
     <!-- PackagedIdentityFixtures lives here and is linked into the packaged host, so the
          derivation has to compile in both. -->
     <Compile Include="..\_shared\FinalPath.cs" Link="FinalPath.cs" />
@@ -44,6 +45,12 @@
     <!-- The CI shard partition. Linked into both hosts and both wrappers so the host that
          selects a shard and the wrapper that checks it parse the spec with one implementation. -->
     <Compile Include="..\_shared\SelfTestShard.cs" Link="SelfTestShard.cs" />
+  </ItemGroup>
+
+  <!-- Spec 066 §12.1: the transforms behaviour ledger the TransformsMatrix selftest compares
+       against. Embedded so the packaged host, which links this project's sources, reads it too. -->
+  <ItemGroup>
+    <EmbeddedResource Include="SelfTest\Baselines\transforms-ledger*.json" LogicalName="TransformsMatrix.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!--
@@ -104,5 +111,7 @@
          have been retired; the Phase-2 NativeDockingSmokeFixtures cover the
          same surface against the native renderer. -->
   </ItemGroup>
+
+  <Import Project="ToolkitInputSamples.props" />
 
 </Project>

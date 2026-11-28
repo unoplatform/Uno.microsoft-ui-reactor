@@ -1,13 +1,14 @@
 
 # Source Mapping
 
-"Source mapping" in Microsoft.UI.Reactor (Reactor) is the chain that ties a runtime artifact —
-an ETW event, a `--preview` overlay highlight, a thrown exception —
-back to the C# source that produced it. Two granularities ship today:
-*component* attribution, where every render emits an ETW event carrying
-the component's type name, and *per-element* attribution, where each DSL
-call site carries the file, line and column that produced it. This page covers
-both.
+"Source mapping" in Microsoft.UI.Reactor (Reactor) is the chain that ties a
+runtime artifact — an ETW event, a `--preview` overlay highlight, a thrown
+exception — back to the C# source that produced it.
+
+Two granularities ship today: *component* attribution, where every render
+emits an ETW event carrying the component's type name, and *per-element*
+attribution, where each DSL call site carries the file, line and column that
+produced it. This page covers both.
 
 > **Status.** Per-element source tagging ships as `Element.CallSite` plus
 > `Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap`. There are two
@@ -83,6 +84,7 @@ components, which have no type of their own, report `FuncElement` and
 | `StateChange` | Hook kind + value type | ETW `State` keyword |
 | `RenderError` | Component name + exception type only (message redacted); emitted when a component's `Render()` or effect flush throws — on mount, update and at the host root — including errors an `ErrorBoundary` catches (named at the throw site, once) | ETW `Errors` keyword |
 | Per-element file:line:column | Element call site | `Element.CallSite` / `ReactorSourceMap.GetSource` (when source mapping is enabled at build time) |
+| Per-component file name:line:column | Component call site (file name only, never its directories) | `Microsoft-UI-Reactor-Perf` `ComponentRender` Start `callSiteFile` / `callSiteLine` / `callSiteColumn` (when source mapping is on; see the [perf trace events reference](https://github.com/microsoft/microsoft-ui-reactor/blob/main/docs/reference/perf-trace-events.md)) |
 
 The reconcile pass also emits a counter summary on stop:
 
@@ -204,7 +206,7 @@ already stores -> `Element.CallSite`. It returns `null` when the control
 was not produced by Reactor, when the assembly was built without source
 mapping, or when nothing stamped that element.
 
-A Native AOT app in diagnostics mode (`REACTOR_DIAGNOSTICS=1`) does not give an
+A [Native AOT](native-aot.md) app in diagnostics mode (`REACTOR_DIAGNOSTICS=1`) does not give an
 element a back-pointer just for its call site: no managed inspector can load into
 the process to read it, and it costs about 1 KB per control. `GetSource` then reads
 the location from the control's published `ReactorSource` value and returns the same
@@ -314,7 +316,7 @@ library can annotate its own forwarders and consumers get the benefit.
 `Element` declares `implicit operator Element(string)`, so `VStack("hi")` builds
 its child by calling `TextBlock` *inside Reactor's own assembly*. That call site
 cannot be intercepted — interceptors work on ordinary method calls, never on
-operators, and the operator body is already compiled into `Reactor.dll`.
+operators, and the operator body is already compiled into `Microsoft.UI.Reactor.dll`.
 
 Instead, the enclosing factory call stamps the converted argument as it passes
 it through, using **the argument expression's own line**:
@@ -505,7 +507,10 @@ WinUI cannot show you: until the target mounts, the property itself
 purpose-named components — `<UserCard>`, `<RegisterForm>`,
 `<NotificationBadge>` — and the ETW events will identify them.
 Inline anonymous `Func`-component lambdas show up as
-`FuncElement` in traces, which is almost never what you want.
+`FuncElement` in the `Microsoft-UI-Reactor` EventSource's events, which
+is almost never what you want. (The `Microsoft-UI-Reactor-Perf` spans
+name them by their render function instead, `RenderEachTime in
+MainPage.Render`, but every lambda in one method still shares a name.)
 
 **`RenderError` redacts the message on purpose.** TASK-064 strips
 `ex.Message` from the ETW payload because exception messages can

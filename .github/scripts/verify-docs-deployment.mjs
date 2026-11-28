@@ -3,12 +3,13 @@
 //
 // Why this exists (issue #1268). A release PR always edits docs/guide/**, which
 // matches the `push: branches: [main]` path filter in docs.yml, and the release
-// tag then points at that same merge commit. Both runs hand
-// `actions/deploy-pages` the same `pages_build_version` — it is `github.sha`,
-// and the action exposes no input to override it — so the two deployments
-// collide under one identity and one of them is silently stranded. Every job
-// goes green, the deployment reports success, and `gh-pages` is byte-correct;
-// the only symptom is that the live site keeps showing the previous release.
+// tag then points at that same merge commit. When the tag run deployed it too,
+// GitHub Pages accepted that tag-ref deployment of a commit it was already
+// serving, reported success (the Deployments API even marked it active), and
+// kept serving the previous artifact (actions/deploy-pages#383). Every job went
+// green and `gh-pages` was byte-correct; the only symptom was that the live
+// site kept showing the previous release. docs.yml now hands a tag run's
+// deployment to a `main` run instead, and this gate verifies that run.
 //
 // Nothing else in the pipeline ever looks at the live site, so no amount of
 // green CI could catch that. This gate is cause-agnostic: it fails whenever the
@@ -141,10 +142,10 @@ export function selectProbeTargets(expectedVersions, publishedVersions = []) {
 }
 
 /**
- * The version or alias a mike-generated site root forwards to, or null when the
+ * The version or alias the generated site root forwards to, or null when the
  * document does not look like one.
  *
- * Parsed rather than substring-matched. `set-default` writes the target into a
+ * Parsed rather than substring-matched. The publish script writes the target into a
  * `location.replace(...)` call and a `<noscript>` meta refresh, but the same
  * document also contains a human-visible `<a href="...">`. A contains() check
  * would accept a root that redirects to `not-latest/` (which contains
@@ -171,7 +172,7 @@ function normaliseTarget(target) {
 /**
  * The version or alias the site root should redirect to.
  *
- * mike's `set-default` writes a root index.html that forwards to whichever
+ * docs/_website/scripts/publish.mjs writes a root index.html that forwards to whichever
  * version or alias is default — `latest` once any release exists, and `main`
  * during the window before the first one. Returns null when neither is
  * published, because the workflow's own fallback is ambiguous there and a
@@ -203,7 +204,7 @@ export function evaluate({
 
   // --- The per-run oracle. ---------------------------------------------
   // Comparing the live version list alone is vacuous for a `main` push:
-  // `mike deploy main` republishes an existing version, so the version *set*
+  // publishing `main` again republishes an existing version, so the version *set*
   // is unchanged and the comparison passes whether or not this run's
   // deployment ever landed. The stamp is what makes the check mean something
   // on every trigger.
@@ -293,7 +294,8 @@ export function evaluate({
     }
   }
 
-  // The publishing steps and mike produce these two lists independently, so a
+  // The workflow's publishing steps and the versions.json the publish script
+  // writes produce these two lists independently, so a
   // name in one and not the other means the run does not know what it wrote.
   // The workflow fails earlier on this, which makes reaching it here a sign
   // that the earlier guard was bypassed rather than a routine outcome.
@@ -308,7 +310,7 @@ export function evaluate({
     });
   }
 
-  // The URL readers actually land on. mike writes it only via `set-default`,
+  // The URL readers actually land on. Only the publish script writes it,
   // and it is the one page no version directory covers, so a stale or broken
   // root is invisible to every other check here.
   const rootTarget = expectedRootTarget(expectedVersions);
@@ -327,7 +329,7 @@ export function evaluate({
             kind: "root-unparseable",
             message:
               "The site root responded 200 but carries no recognisable redirect. " +
-              "`mike set-default` writes one, so a root without it sends readers nowhere.",
+              "The publish script writes one, so a root without it sends readers nowhere.",
           });
         } else if (actual !== rootTarget) {
           failures.push({
@@ -451,7 +453,7 @@ async function observe(baseUrl, expectedVersions, publishedVersions, deps) {
     { key: "stamp", path: STAMP_PATH },
     { key: "versions", path: VERSIONS_PATH },
     { key: "root", path: ROOT_INDEX_PATH },
-    // `mike deploy --alias-type copy` publishes `latest/` as its own tree, and
+    // The publish script builds `latest/` as its own tree, and
     // the site root forwards there, so a missing `latest/index.html` 404s every
     // reader arriving at the bare URL. Probing the version that *owns* the
     // alias does not cover it: they are separate directories.
@@ -539,7 +541,7 @@ export function report(verdict, { baseUrl, expectedRunId, expectedRunAttempt, lo
       ? `Could not read ${baseUrl} at all, so the deployment is unverified. ` +
         "Not one probe returned known-good content, so this says nothing about the deployment itself — treat it as a broken check, not a stranded deploy."
       : `${baseUrl} is not serving the artifact this run published (issue #1268). ` +
-        "Re-serve it by dispatching the Publish docs workflow on main — the artifact is the whole gh-pages branch, so any allowed ref republishes every version.";
+        "Re-serve it by dispatching the Publish docs workflow on main — the artifact is the whole gh-pages branch, so a run on main republishes every version.";
 
   // Everything on one stream, so the annotation and the observations it rests
   // on cannot interleave out of order in the run log.

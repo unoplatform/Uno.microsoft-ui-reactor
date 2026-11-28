@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using Microsoft.UI.Reactor.Analyzers.Modifiers;
 
 namespace Microsoft.UI.Reactor.Analyzers;
 
@@ -13,13 +15,15 @@ internal sealed class ModifierInfo
         bool poolReset = false,
         string[]? controlGate = null,
         string[]? elementTypes = null,
-        string[]? poolResetGate = null)
+        string[]? poolResetGate = null,
+        string[]? themeControlGate = null)
     {
         Modifier = modifier;
         PoolReset = poolReset;
         ControlGate = controlGate;
         ElementTypes = elementTypes;
         PoolResetGate = poolResetGate;
+        ThemeControlGate = themeControlGate;
     }
 
     /// <summary>Name of the fluent modifier method to suggest.</summary>
@@ -47,6 +51,12 @@ internal sealed class ModifierInfo
     /// </para>
     /// </summary>
     public string[]? ControlGate { get; }
+
+    /// <summary>
+    /// WinUI types supported by the generic <c>ThemeRef</c> overload when its theme-binding
+    /// path differs from <see cref="ControlGate"/>. The analyzer otherwise uses the common gate.
+    /// </summary>
+    public string[]? ThemeControlGate { get; }
 
     /// <summary>
     /// Reactor element types that declare a type-specific overload of this modifier, or
@@ -269,12 +279,11 @@ internal sealed class AttachedModifierInfo
 /// </remarks>
 internal static class ModifierTable
 {
-    // Type groups, named once so the intent is legible at each use site. Each name is its receiver
-    // list concatenated, which is deliberate — and it makes set inclusion equivalent to string
-    // inclusion. A gate that is a superset of another therefore *necessarily* has a name that
-    // contains the narrower one: ControlBorder is a prefix of ControlBorderGridStack, which is a
-    // prefix of ControlBorderGridStackRelative, which is a prefix of the ...Text form (8 such strict
-    // prefix pairs today), and PanelControlBorder contains ControlBorder without starting with it.
+    // The common modifiers' gate groups live in Modifiers/ModifierSchema.cs since spec 067 layer 1,
+    // with each slot's controlGate / poolResetGate written there. Each name is its receiver list
+    // concatenated, which makes set inclusion equivalent to string inclusion: a superset gate
+    // *necessarily* has a name containing the narrower one (ControlBorderGridStack is a prefix of
+    // ControlBorderGridStackRelative, which is a prefix of the ...Text form).
     //
     // So: compare what a gate CONTAINS, not what it is CALLED. Read ModifierInfo.ControlGate /
     // ModifierInfo.PoolResetGate and compare the type sets — that is what every check in
@@ -282,42 +291,55 @@ internal static class ModifierTable
     // what ModifierGateProseParityTests does for the REACTOR_MOD_003 gate list in the shipped
     // reactor-build-and-check skill: prose names receiver TYPES, so it compares sets too.
     //
-    // Only when the artifact genuinely leaves no typed property reachable should you match this
-    // file as text, and then anchor on the delimiters the C# syntax guarantees: `SLOT:\s*NAME\s*[,)]`.
+    // Only when the artifact genuinely leaves no typed property reachable should you match the
+    // source as text, and then anchor on the delimiters the C# syntax guarantees: `SLOT:\s*NAME\s*[,)]`.
     // A bare Contains(NAME) selects every wider gate as well, silently passing the very assertion
     // meant to catch a mis-widened gate. tests/Reactor.Tests/AnalyzerTests/ModifierGateSource.cs is
-    // the test-only reference implementation of that matcher — it is internal to Reactor.Tests, so
-    // CLI and analyzer code must copy the pattern and add a parity test rather than call it —
-    // and ModifierGateIdentifierTests pins it to this table. Issue #1062.
-    private static readonly string[] ControlBorderGridStackRelativeText = { "Control", "Border", "Grid", "StackPanel", "RelativePanel", "TextBlock" };
-    private static readonly string[] ControlBorderGridStackRelative = { "Control", "Border", "Grid", "StackPanel", "RelativePanel" };
-    private static readonly string[] ControlBorder = { "Control", "Border" };
-    private static readonly string[] PanelControlBorder = { "Panel", "Control", "Border" };
-    private static readonly string[] ControlOrTextBlock = { "Control", "TextBlock" };
+    // the test-only reference implementation of that matcher (it reads this file and
+    // ModifierSchema.cs) — it is internal to Reactor.Tests, so CLI and analyzer code must copy the
+    // pattern and add a parity test rather than call it — and ModifierGateIdentifierTests pins it
+    // to this table. Issue #1062.
     private static readonly string[] RichTextBlockOnly = { "RichTextBlockElement" };
     private static readonly string[] TextOrRichTextBlock = { "TextBlockElement", "RichTextBlockElement" };
-
-    // The two groups above minus RelativePanel, which ApplyModifiers writes to but
-    // ElementPool never recycles. Used as poolResetGate, never as controlGate.
-    private static readonly string[] ControlBorderGridStackText = { "Control", "Border", "Grid", "StackPanel", "TextBlock" };
-    private static readonly string[] ControlBorderGridStack = { "Control", "Border", "Grid", "StackPanel" };
-
-    // Single-receiver poolResetGate. ControlOnly names the receiver whose arm in
-    // ElementPool.CleanElement actually clears the property — today only IsEnabled, which
-    // CleanElement clears under `if (fe is Control …)` rather than on the FrameworkElement.
-    //
-    // This is never a controlGate — a control gate says where ApplyModifiers writes the modifier,
-    // which is a different and usually wider question. Deriving one from the other is the
-    // conflation that let REACTOR_POOL_001 claim IsTabStop was pool-reset on a TextBlock while
-    // CleanElement left it alone there; that leak is now fixed in the pool, so IsTabStop needs no
-    // gate at all and this list has one member.
-    private static readonly string[] ControlOnly = { "Control" };
 
     // Element-type lists for the type-specific modifiers whose property CleanElement resets in a
     // `case` arm of its type dispatch. Named here rather than inline because each is shared by
     // two rows or reads better beside its sibling.
     private static readonly string[] ViewboxElementOnly = { "ViewboxElement" };
     private static readonly string[] ProgressRingElementOnly = { "ProgressRingElement" };
+
+    /// <summary>
+    /// A row for a common modifier: its gates come from the slot of the same name in
+    /// <see cref="ModifierSchema"/> (spec 067 §4.5), while <paramref name="poolReset"/> and
+    /// <paramref name="elementTypes"/> stay editorial facts of this table.
+    /// </summary>
+    private static ModifierInfo Common(string property, bool poolReset = false, string[]? elementTypes = null)
+    {
+        var slot = ModifierSchema.Find(property)
+            ?? throw new System.InvalidOperationException($"ModifierSchema has no slot named '{property}'.");
+        return new ModifierInfo(
+            property,
+            poolReset: poolReset,
+            controlGate: slot.AnalyzerControlGate,
+            elementTypes: elementTypes,
+            poolResetGate: slot.AnalyzerPoolResetGate,
+            themeControlGate: ThemeGate(slot));
+    }
+
+    // The ThemeRef path's receivers, reported only where they differ from the plain gate, which is
+    // how the analyzer models a wider theme reach. No slot has one today.
+    private static string[]? ThemeGate(ModifierSlot slot)
+    {
+        var theme = new List<string>();
+        foreach (var receiver in slot.ReceiversWith(ReceiverRole.Theme))
+            theme.Add(receiver.SimpleType);
+        if (theme.Count == 0)
+            return null;
+        var plain = slot.AnalyzerControlGate;
+        return plain is not null && new HashSet<string>(plain, System.StringComparer.Ordinal).SetEquals(theme)
+            ? null
+            : theme.ToArray();
+    }
 
     /// <summary>
     /// The exact WinUI control type names <c>ElementPool</c> recycles — a mirror of
@@ -349,12 +371,7 @@ internal static class ModifierTable
     /// </para>
     /// </remarks>
     private static readonly HashSet<string> PoolableTypeNameSet =
-        new HashSet<string>(System.StringComparer.Ordinal)
-        {
-            "TextBlock", "RichTextBlock", "StackPanel", "Grid", "Border", "ScrollViewer",
-            "Canvas", "Viewbox", "ProgressBar", "ProgressRing", "Image", "InfoBadge",
-            "Button", "TextBox", "ToggleSwitch",
-        };
+        new HashSet<string>(ModifierSchema.PoolableTypeNames, System.StringComparer.Ordinal);
 
     /// <summary>The mirrored poolable type names, for the parity test that keeps them honest.</summary>
     public static IEnumerable<string> PoolableTypeNames => PoolableTypeNameSet;
@@ -371,17 +388,17 @@ internal static class ModifierTable
         {
             // ── Pool-reset (REACTOR_POOL_001, Warning) ───────────────────────────────
             // Reset in ElementPool.CleanElement; all applied unconditionally to `fe`.
-            { "Margin",              new ModifierInfo("Margin",              poolReset: true) },
-            { "Width",               new ModifierInfo("Width",               poolReset: true) },
-            { "Height",              new ModifierInfo("Height",              poolReset: true) },
-            { "MinWidth",            new ModifierInfo("MinWidth",            poolReset: true) },
-            { "MinHeight",           new ModifierInfo("MinHeight",           poolReset: true) },
-            { "MaxWidth",            new ModifierInfo("MaxWidth",            poolReset: true) },
-            { "MaxHeight",           new ModifierInfo("MaxHeight",           poolReset: true) },
-            { "HorizontalAlignment", new ModifierInfo("HorizontalAlignment", poolReset: true) },
-            { "VerticalAlignment",   new ModifierInfo("VerticalAlignment",   poolReset: true) },
-            { "Opacity",             new ModifierInfo("Opacity",             poolReset: true) },
-            { "AccessKey",           new ModifierInfo("AccessKey",           poolReset: true) },
+            { "Margin",              Common("Margin",              poolReset: true) },
+            { "Width",               Common("Width",               poolReset: true) },
+            { "Height",              Common("Height",              poolReset: true) },
+            { "MinWidth",            Common("MinWidth",            poolReset: true) },
+            { "MinHeight",           Common("MinHeight",           poolReset: true) },
+            { "MaxWidth",            Common("MaxWidth",            poolReset: true) },
+            { "MaxHeight",           Common("MaxHeight",           poolReset: true) },
+            { "HorizontalAlignment", Common("HorizontalAlignment", poolReset: true) },
+            { "VerticalAlignment",   Common("VerticalAlignment",   poolReset: true) },
+            { "Opacity",             Common("Opacity",             poolReset: true) },
+            { "AccessKey",           Common("AccessKey",           poolReset: true) },
 
             // IsTabStop deliberately has NO gate. It is declared on UIElement and ApplyModifiers
             // writes it ungated (`fe.IsTabStop = …`), so it reaches every element — including the
@@ -394,8 +411,8 @@ internal static class ModifierTable
             // gate restricts nothing a user could hit and exists to keep the derivation total —
             // every poolReset row names the receivers CleanElement clears it on, and a row that
             // opts out of saying so is a row the parity check cannot verify.
-            { "IsTabStop",           new ModifierInfo("IsTabStop",           poolReset: true) },
-            { "IsEnabled",           new ModifierInfo("IsEnabled",           poolReset: true, poolResetGate: ControlOnly) },
+            { "IsTabStop",           Common("IsTabStop",           poolReset: true) },
+            { "IsEnabled",           Common("IsEnabled",           poolReset: true) },
 
             // Pool-reset but only on some receivers (issue #985). CleanElement clears these
             // through a Control | Border | Panel/Grid/StackPanel | TextBlock chain that mirrors
@@ -430,15 +447,13 @@ internal static class ModifierTable
             // WinUI declares most of these on Panel subclasses too, and the allow-lists
             // genuinely differ: Panel itself declares only Background; Grid, StackPanel, and
             // RelativePanel each declare their own border-box properties, and TextBlock takes
-            // Padding but not CornerRadius. The three rows without a poolResetGate need none:
-            // CleanElement clears Background for every Panel and both Border* for the whole
-            // Control and Border arms, so once (1) holds there is no gated receiver left for (2)
-            // to exclude — their ControlGate already names exactly the cleared receivers.
-            { "Padding",         new ModifierInfo("Padding",         poolReset: true, controlGate: ControlBorderGridStackRelativeText, poolResetGate: ControlBorderGridStackText) },
-            { "CornerRadius",    new ModifierInfo("CornerRadius",    poolReset: true, controlGate: ControlBorderGridStackRelative,     poolResetGate: ControlBorderGridStack) },
-            { "BorderThickness", new ModifierInfo("BorderThickness", poolReset: true, controlGate: ControlBorder) },
-            { "BorderBrush",     new ModifierInfo("BorderBrush",     poolReset: true, controlGate: ControlBorder) },
-            { "Background",      new ModifierInfo("Background",      poolReset: true, controlGate: PanelControlBorder) },
+            // Padding but not CornerRadius. Background needs no poolResetGate because
+            // CleanElement clears it for every Panel, including each poolable subtype.
+            { "Padding",         Common("Padding",         poolReset: true) },
+            { "CornerRadius",    Common("CornerRadius",    poolReset: true) },
+            { "BorderThickness", Common("BorderThickness", poolReset: true) },
+            { "BorderBrush",     Common("BorderBrush",     poolReset: true) },
+            { "Background",      Common("Background",      poolReset: true) },
 
             // ── Generic modifier, no runtime gate (REACTOR_MOD_002, Info) ────────────
             // The content-alignment pair IS Control-gated in ApplyModifiers, but WinUI
@@ -447,8 +462,8 @@ internal static class ModifierTable
             // CleanElement clears both since #1013. They deliberately stay MOD_002 per
             // #1195: clearing on pool return does not lose .Set writes; the next mount
             // re-applies setters.
-            { "HorizontalContentAlignment", new ModifierInfo("HorizontalContentAlignment") },
-            { "VerticalContentAlignment",   new ModifierInfo("VerticalContentAlignment") },
+            { "HorizontalContentAlignment", Common("HorizontalContentAlignment") },
+            { "VerticalContentAlignment",   Common("VerticalContentAlignment") },
 
             // Reset by CleanElement (issue #162, alongside IsTabStop) and written ungated by
             // ApplyModifiers, yet deliberately NOT poolReset — see the note on DeliberatelyExcluded
@@ -473,7 +488,7 @@ internal static class ModifierTable
             // poolReset out of symmetry. Whether the 18 existing poolReset rows should keep that
             // stronger claim is a live question raised on #1193 and deliberately not answered here:
             // flipping this one bool is the whole change if they do.
-            { "IsHitTestVisible", new ModifierInfo("IsHitTestVisible") },
+            { "IsHitTestVisible", Common("IsHitTestVisible") },
 
             // Fonts have BOTH a generic modifier and type-specific overloads, and the two
             // cover different receivers — so the gates are OR'd (see ModifierInfo.ElementTypes).
@@ -482,10 +497,12 @@ internal static class ModifierTable
             // generic modifier and write nothing. The RichTextBlockElement overloads are what
             // make the suggestion sound on that receiver — FontSize's was added alongside this
             // table for exactly that reason.
-            { "FontFamily", new ModifierInfo("FontFamily", controlGate: ControlOrTextBlock, elementTypes: TextOrRichTextBlock) },
-            { "FontSize",   new ModifierInfo("FontSize",   controlGate: ControlOrTextBlock, elementTypes: TextOrRichTextBlock) },
-            { "FontWeight", new ModifierInfo("FontWeight", controlGate: ControlOrTextBlock, elementTypes: RichTextBlockOnly) },
-            { "Foreground", new ModifierInfo("Foreground", controlGate: ControlOrTextBlock, elementTypes: RichTextBlockOnly) },
+            // CleanElement resets these four on Control and TextBlock (#1662), and they stay MOD_002
+            // per #1195, like the content-alignment pair: the next mount re-applies a .Set write.
+            { "FontFamily", Common("FontFamily", elementTypes: TextOrRichTextBlock) },
+            { "FontSize",   Common("FontSize",   elementTypes: TextOrRichTextBlock) },
+            { "FontWeight", Common("FontWeight", elementTypes: RichTextBlockOnly) },
+            { "Foreground", Common("Foreground", elementTypes: RichTextBlockOnly) },
 
             // ── Type-specific modifiers (REACTOR_MOD_002, Info) ──────────────────────
             // No generic overload exists, so the rewrite only compiles on these element
@@ -598,25 +615,23 @@ internal static class ModifierTable
     /// Recording it here would claim a gate the reader found, which it did not; the null-gate
     /// rationale for that pair is documented at its <see cref="Properties"/> entry instead.
     /// </para>
+    /// <para>
+    /// Built from the <see cref="ModifierSlot.GateOnlyInReconcilerReason"/> each slot declares in
+    /// <see cref="ModifierSchema"/> (spec 067 §4.5). The BiDi logical modifiers
+    /// (<c>PaddingInlineStart/End</c>, <c>BorderInlineStart</c>) are there because they fold into a
+    /// physical write and inherit its gate, but are not WinUI property names, so they have no row in
+    /// <see cref="Properties"/> (keyed on the name written inside a <c>.Set</c> lambda).
+    /// </para>
     /// </remarks>
-    public static readonly IReadOnlyDictionary<string, string> GateOnlyInReconciler =
-        new Dictionary<string, string>(System.StringComparer.Ordinal)
-        {
-            ["IsEnabled"] = "Control-gated in ApplyModifiers. Mapped with a null ControlGate because WinUI declares IsEnabled on Control only, so a .Set lambda that compiles already qualifies. REACTOR_MOD_003 therefore does not report .IsEnabled(...) — declaring the gate here would be the way to turn that on.",
-            ["TabIndex"] = "Control-gated in ApplyModifiers but unmapped in Properties (see DeliberatelyExcluded) — WinUI also declares TabIndex on UIElement, so the gate needs verifying before either direction uses it.",
-            ["ElementSoundMode"] = "Control-gated in ApplyModifiers and unmapped in Properties: there is no .ElementSoundMode modifier to suggest, and the generic .ElementSoundMode(...) path has not been audited for the reverse direction.",
+    public static readonly IReadOnlyDictionary<string, string> GateOnlyInReconciler = BuildGateOnlyInReconciler();
 
-            // Reactor-only BiDi logical modifiers. Both fold into a physical write
-            // (PaddingInlineStart → Padding, BorderInlineStart → BorderThickness) and inherit that
-            // write's control gate, so `.PaddingInlineStart(8)` on a Grid is dropped exactly like
-            // `.Padding(8)` is. They are NOT WinUI property names, and Properties is keyed by the
-            // name written inside a .Set lambda — so mapping them there would add rows REACTOR_MOD_002
-            // can never match. Covering them in REACTOR_MOD_003 needs a modifier-keyed gate table;
-            // recorded here so the omission is deliberate rather than invisible.
-            ["PaddingInlineStart"] = "Reactor-only BiDi logical modifier; folds into the Padding write and inherits its Control/Border/Grid/StackPanel/RelativePanel/TextBlock gate. Not a WinUI property name, so it has no home in Properties (which is keyed on those). REACTOR_MOD_003 coverage needs a modifier-keyed table.",
-            ["PaddingInlineEnd"] = "Reactor-only BiDi logical modifier, the mirror of PaddingInlineStart; same guard, same gate, same reasoning.",
-            ["BorderInlineStart"] = "Reactor-only BiDi logical modifier; folds into the BorderThickness write and inherits its Control/Border gate. Not a WinUI property name — same reasoning as PaddingInlineStart. (There is no BorderInlineEnd modifier.)",
-        };
+    private static Dictionary<string, string> BuildGateOnlyInReconciler()
+    {
+        var map = new Dictionary<string, string>(System.StringComparer.Ordinal);
+        foreach (var slot in ModifierSchema.Slots.Where(s => s.GateOnlyInReconcilerReason is not null))
+            map[slot.Name] = slot.GateOnlyInReconcilerReason!;
+        return map;
+    }
 
     /// <summary>
     /// Properties intentionally absent from <see cref="Properties"/>, with the reason.
@@ -672,16 +687,71 @@ internal static class ModifierTable
 
             ["Resources"] = "Modifier takes an Action<ResourceBuilder>; the property is a ResourceDictionary.",
 
-            // Candidates, deliberately unmapped pending verification of how VisualModifiers
-            // reach the control. Mapping one wrongly ships a code fix that compiles and does
-            // nothing, which is the failure this table exists to prevent — so they stay out
-            // until the application path is confirmed the way ApplyModifiers was.
-            ["Scale"] = "Candidate: routed through VisualModifiers; application path not yet verified against a control-type gate.",
-            ["Rotation"] = "Candidate: routed through VisualModifiers; application path not yet verified.",
-            ["CenterPoint"] = "Candidate: routed through VisualModifiers; application path not yet verified.",
+            // Spec 066 §9.1: a blanket MOD_002 suggestion would rewrite working code on a plain
+            // element into code that takes the visual (since spec 066 layer 4 these modifiers
+            // write it), and the analyzer cannot see the later facade writes from event handlers
+            // or ElementRef.Current that would then throw. Keeping them out also means one .Set
+            // write never gets both a REACTOR_ANIM_004 and a REACTOR_MOD_002 diagnostic.
+            ["Scale"] = "The modifier takes the composition visual, which locks the facades for the control's lifetime; REACTOR_ANIM_004 covers the harmful combination.",
+            ["Rotation"] = "The modifier takes the composition visual, which locks the facades for the control's lifetime; REACTOR_ANIM_004 covers the harmful combination.",
+            ["CenterPoint"] = "The modifier takes the composition visual, which locks the facades for the control's lifetime; REACTOR_ANIM_004 covers the harmful combination.",
+
+            // Candidates, deliberately unmapped pending verification of how they reach the
+            // control. Mapping one wrongly ships a code fix that compiles and does nothing,
+            // which is the failure this table exists to prevent.
             ["TabIndex"] = "Candidate: Control-gated in ApplyModifiers, but WinUI also declares TabIndex on UIElement; needs the same gate treatment as Padding before mapping.",
             ["TabNavigation"] = "Candidate: Control-only property; not yet verified against ApplyModifiers.",
             ["XYFocusKeyboardNavigation"] = "Candidate: UIElement property; not yet verified against ApplyModifiers.",
+        };
+
+    /// <summary>
+    /// Fluent modifiers that take the element's composition visual
+    /// (<c>ElementCompositionPreview.GetElementVisual</c>), keyed by method name, with where
+    /// the reconciler takes it. <c>REACTOR_ANIM_004</c> fires when a <c>.Set</c> on the same
+    /// chain writes a facade transform that WinUI rejects once the visual is taken.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Spec 066 §9.1. The set grows with that spec's rollout, one row per modifier that
+    /// starts taking the visual: layer 2 added the four <c>.XxxTransition()</c>, layer 4
+    /// <c>.Scale</c>, <c>.Rotation</c>, <c>.Translation</c> and <c>.CenterPoint</c>, and layer 5 adds
+    /// <c>.TransformOrigin</c>. Add a row in the same change that makes the modifier take the
+    /// visual, never earlier: before that the facade write still works, so the warning would be
+    /// a false positive. The same change makes <c>Reconciler.ForMount</c> count the modifier as
+    /// visual-lane demand for the element pool (spec 066 §7.2); <c>ElementPoolLaneTests</c> fails
+    /// until it does.
+    /// </para>
+    /// <para>
+    /// The analyzer confirms each match through the semantic model (a Reactor extension method),
+    /// so a user method of the same name does not trigger it. <c>ModifierTableIntegrityTests</c>
+    /// checks every row names a real <c>ElementExtensions</c> modifier.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, string> VisualOwningModifiers =
+        new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            ["Animate"] = "Reconciler.ApplyPropertyAnimation takes the visual to install its implicit animations.",
+            ["InteractionStates"] = "InteractionStateApplier.TransitionToState takes the visual on the first state change to animate it.",
+            ["Transition"] = "Reconciler.ApplyEnterTransition/ApplyExitTransition take the visual to animate enter and exit.",
+            ["Keyframes"] = "Reconciler.ApplyKeyframeAnimations takes the visual to start the keyframe animation.",
+            ["LayoutAnimation"] = "Reconciler.ApplyLayoutAnimation takes the visual to install its Offset/Size implicit animations.",
+            ["SpringLayoutAnimation"] = "Sets the same LayoutAnimation config as .LayoutAnimation, so Reconciler.ApplyLayoutAnimation takes the visual.",
+            ["ScrollLinked"] = "Reconciler.ApplyScrollAnimation takes the visual through AnimationHelper.GetElementVisual to bind its expressions.",
+            // Spec 066 layer 2: the transitions run on the compositor, so declaring one takes the
+            // visual at mount (Reconciler.ApplyImplicitTransitions), even with animations off.
+            ["OpacityTransition"] = "Reconciler.ApplyImplicitTransitions takes the visual to install its Opacity implicit key.",
+            ["ScaleTransition"] = "Reconciler.ApplyImplicitTransitions takes the visual to install its Scale implicit key.",
+            ["RotationTransition"] = "Reconciler.ApplyImplicitTransitions takes the visual to install its RotationAngle implicit key.",
+            ["TranslationTransition"] = "Reconciler.ApplyImplicitTransitions takes the visual, and AnimationHelper animates Translation writes on it.",
+            // Spec 066 layer 4: the transforms always write the visual, so a non-identity value
+            // takes it at mount. An identity value on a fresh control doesn't (§3 invariant 2),
+            // which FacadeTransformSetAnalyzer honours for constant arguments.
+            ["Scale"] = "AnimationHelper.SetOrAnimateVector3 writes Visual.Scale, taking the visual unless the value is the identity.",
+            ["Rotation"] = "AnimationHelper.SetOrAnimate writes Visual.RotationAngle, taking the visual unless the value is 0.",
+            ["Translation"] = "AnimationHelper.SetOrAnimateVector3 enables translation and writes the visual's Translation, taking the visual unless the value is zero.",
+            ["CenterPoint"] = "AnimationHelper.SetOrAnimateVector3 writes Visual.CenterPoint, taking the visual unless the value is zero.",
+            // Spec 066 layer 5: an origin other than (0, 0) starts its pivot expression on the visual at mount.
+            ["TransformOrigin"] = "TransformOriginBinding.Apply starts the pivot expression on Visual.CenterPoint, taking the visual unless the origin is (0, 0).",
         };
 
     // ── Attached properties ──────────────────────────────────────────────────
